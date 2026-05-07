@@ -1,0 +1,14 @@
+{
+  "name": "Índice de Competitividad Empresarial",
+  "short_name": "Índice COPARMEX",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "64x64",
+      "type": "image/svg+xml"
+    }
+  ],
+  "theme_color": "#09284a",
+  "background_color": "#f3f6fa",
+  "display": "standalone"
+}
