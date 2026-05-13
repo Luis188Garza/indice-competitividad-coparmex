@@ -785,7 +785,7 @@ function CompanyDashboard({ company, result, loadingResult, resultError, onStart
       <TwoColumns left={<ModuleBars scores={result.moduleScores} />} right={<InsightList title="Acciones recomendadas" items={result.recommendations.slice(0, 4)} />} />
       <div className="actions-row">
         <button className="primary" onClick={onResults}>Ver resultados</button>
-        <button className="secondary" onClick={onStart}>Realizar nuevo diagn?stico</button>
+        <button className="secondary" onClick={onStart}>Realizar nuevo diagnóstico</button>
       </div>
     </>
   );
@@ -1215,7 +1215,6 @@ function PrepPanel({ onStart }: { onStart: () => void }) {
         ))}
       </div>
       <div className="actions-row">
-        <button className="secondary">Guardar y continuar</button>
         <button className="primary" onClick={onStart}>Actualizar diagnóstico</button>
       </div>
     </div>
