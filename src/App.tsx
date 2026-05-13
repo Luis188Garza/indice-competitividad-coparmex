@@ -21,12 +21,13 @@ import { activityLog, companies, diagnostics, documents, observations, roles } f
 import { CompanyProfile, DiagnosticResult, SelectedDiagnosticOption } from "./types";
 import { loginWithEmail, listenAuthState, logout as firebaseLogout } from "./services/authService";
 import { createCompany, getCompanyByAuthUid, listCompanies } from "./services/companiesService";
+import { listAccessRequests, saveAccessRequest, updateAccessRequestStatus, type AccessRequestRecord } from "./services/accessRequestsService";
 import { getResponsesByCompany, saveDiagnosticResponse } from "./services/diagnosticResponsesService";
 import { calculateDiagnostic, trafficLabel } from "./utils/scoring";
 
-type View = "landing" | "about" | "login" | "loginEmpresa" | "loginAdmin" | "register" | "questionnaire" | "result" | "company" | "admin" | "stats" | "detail";
+type View = "landing" | "about" | "login" | "loginEmpresa" | "loginAdmin" | "requestAccess" | "register" | "questionnaire" | "result" | "company" | "admin" | "stats" | "detail";
 type CompanyTab = "dashboard" | "autodiagnostico" | "resultado" | "recomendaciones" | "observaciones" | "perfil" | "documentacion";
-type AdminTab = "panel" | "empresas" | "diagnosticos" | "estadisticas" | "observaciones" | "reportes" | "configuracion";
+type AdminTab = "panel" | "empresas" | "solicitudes" | "diagnosticos" | "estadisticas" | "observaciones" | "reportes" | "configuracion";
 type Session = { isAuthenticated: boolean; role: "empresa" | "admin" | null; companyId?: string; adminName?: string };
 type AnswerState = Record<string, SelectedDiagnosticOption>;
 type AdminCompany = CompanyProfile & { accessStatus?: string; authUid?: string; folio?: string; source?: "firestore" | "mock" };
@@ -109,11 +110,20 @@ function App() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [selectedCompanyId, setSelectedCompanyId] = useState(companies[0].id);
   const [selectedAdminCompany, setSelectedAdminCompany] = useState<AdminCompany | null>(null);
-  const [session, setSession] = useState<Session>({ isAuthenticated: false, role: null });
+  const [session, setSession] = useState<Session>(() => {
+    if (typeof window === "undefined") return { isAuthenticated: false, role: null };
+    const savedAdmin = window.localStorage.getItem("ice-admin-session");
+    return savedAdmin ? JSON.parse(savedAdmin) as Session : { isAuthenticated: false, role: null };
+  });
   const [authenticatedCompany, setAuthenticatedCompany] = useState<AdminCompany | null>(() => {
     if (typeof window === "undefined") return null;
     const saved = window.localStorage.getItem("ice-current-company");
     return saved ? JSON.parse(saved) as AdminCompany : null;
+  });
+  const [authReady, setAuthReady] = useState(() => {
+    if (typeof window === "undefined") return true;
+    const hasAdminSession = Boolean(window.localStorage.getItem("ice-admin-session"));
+    return hasAdminSession;
   });
   const [profile, setProfile] = useState<CompanyProfile>(initialCompany);
   const [currentModule, setCurrentModule] = useState(0);
@@ -190,21 +200,62 @@ function App() {
 
   useEffect(() => {
     const unsubscribe = listenAuthState(async (user) => {
-      if (!user) return;
+      if (!user) {
+        setAuthenticatedCompany(null);
+        window.localStorage.removeItem("ice-current-company");
+        setAuthReady(true);
+        return;
+      }
+
       try {
         const companyData = await getCompanyByAuthUid(user.uid);
-        if (!companyData) return;
+        if (!companyData) {
+          setAuthReady(true);
+          return;
+        }
+
         const company = mapCompanyRecord(companyData as Record<string, any>);
-        if (company.accessStatus && company.accessStatus.toLowerCase() !== "active") return;
+        if (company.accessStatus && company.accessStatus.toLowerCase() !== "active") {
+          setAuthReady(true);
+          return;
+        }
+
         setAuthenticatedCompany(company);
+        setSession({ isAuthenticated: true, role: "empresa", companyId: company.id });
+        setSelectedCompanyId(company.id);
+        setView((current) => ["landing", "login", "loginEmpresa", "requestAccess"].includes(current) ? "company" : current);
         window.localStorage.setItem("ice-current-company", JSON.stringify(company));
       } catch {
-        // El login muestra los errores operativos; el listener solo intenta restaurar sesión.
+        // El login muestra los errores operativos; el listener solo intenta restaurar sesi?n.
+      } finally {
+        setAuthReady(true);
       }
     });
 
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    if (session.isAuthenticated && session.role === "admin" && ["landing", "login", "loginAdmin"].includes(view)) {
+      setView("admin");
+    }
+  }, [session.isAuthenticated, session.role, view]);
+
+  useEffect(() => {
+    if (!session.isAuthenticated) return;
+
+    const fallbackView = session.role === "admin" ? "admin" : "company";
+    window.history.replaceState({ iceView: view }, "", window.location.href);
+    const handlePopState = () => {
+      setView(fallbackView);
+      window.history.pushState({ iceView: fallbackView }, "", window.location.href);
+    };
+
+    window.history.pushState({ iceView: fallbackView }, "", window.location.href);
+    window.addEventListener("popstate", handlePopState);
+
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [session.isAuthenticated, session.role, view]);
 
   const stats = useMemo(() => {
     const average = Math.round(completedDiagnostics.reduce((sum, diagnostic) => sum + diagnostic.result!.percentage, 0) / completedDiagnostics.length);
@@ -290,6 +341,7 @@ function App() {
     setLatestCompanyResult(null);
     setLatestResultError("");
     window.localStorage.removeItem("ice-current-company");
+    window.localStorage.removeItem("ice-admin-session");
     setView("landing");
     setCompanyTab("dashboard");
     setAdminTab("panel");
@@ -320,6 +372,7 @@ function App() {
   const loginAdmin = (user: string, password: string) => {
     if (user.trim().toLowerCase() === "admin@coparmexnld.org.mx" && password === "admin123") {
       setSession({ isAuthenticated: true, role: "admin", adminName: "Administrador COPARMEX" });
+      window.localStorage.setItem("ice-admin-session", JSON.stringify({ isAuthenticated: true, role: "admin", adminName: "Administrador COPARMEX" }));
       setView("admin");
       return true;
     }
@@ -366,13 +419,15 @@ function App() {
       )}
 
       <main>
-        {view === "landing" && <Landing onPortal={() => setView("login")} />}
-        {view === "about" && <AboutIndex />}
-        {view === "login" && <AccessHub onCompany={() => setView("loginEmpresa")} onAdmin={() => setView("loginAdmin")} />}
-        {view === "loginEmpresa" && <CompanyLogin onLogin={loginCompany} />}
-        {view === "loginAdmin" && <AdminLogin onLogin={loginAdmin} />}
-        {view === "register" && <Register profile={profile} setProfile={setProfile} onNext={() => setView("questionnaire")} />}
-        {view === "questionnaire" && (
+        {!authReady && <SessionRestoreScreen />}
+        {authReady && view === "landing" && <Landing onPortal={() => setView("login")} onRequestAccess={() => setView("requestAccess")} />}
+        {authReady && view === "about" && <AboutIndex />}
+        {authReady && view === "login" && <AccessHub onCompany={() => setView("loginEmpresa")} onAdmin={() => setView("loginAdmin")} />}
+        {authReady && view === "loginEmpresa" && <CompanyLogin onLogin={loginCompany} />}
+        {authReady && view === "loginAdmin" && <AdminLogin onLogin={loginAdmin} />}
+        {authReady && view === "requestAccess" && <AccessRequestScreen onBack={() => setView("landing")} />}
+        {authReady && view === "register" && <Register profile={profile} setProfile={setProfile} onNext={() => setView("questionnaire")} />}
+        {authReady && view === "questionnaire" && (
           <Questionnaire
             currentModule={currentModule}
             setCurrentModule={setCurrentModule}
@@ -383,10 +438,10 @@ function App() {
             onComplete={completeDiagnostic}
           />
         )}
-        {view === "result" && result && (
+        {authReady && view === "result" && result && (
           <ResultScreen company={activeCompany} result={result} saveState={saveState} onPdf={simulatePdf} onPortal={() => { setSession({ isAuthenticated: true, role: "empresa", companyId: session.companyId }); setView("company"); }} />
         )}
-        {view === "company" && session.role === "empresa" && (
+        {authReady && view === "company" && session.role === "empresa" && (
           <CompanyPortal
             tab={companyTab}
             setTab={setCompanyTab}
@@ -398,7 +453,7 @@ function App() {
             onPdf={simulatePdf}
           />
         )}
-        {view === "admin" && session.role === "admin" && (
+        {authReady && view === "admin" && session.role === "admin" && (
           <AdminPortal
             tab={adminTab}
             setTab={setAdminTab}
@@ -410,8 +465,8 @@ function App() {
             onPdf={simulatePdf}
           />
         )}
-        {view === "stats" && session.role === "admin" && <RegionalStats stats={stats} />}
-        {view === "detail" && session.role === "admin" && <CompanyDetail company={selectedCompany} result={showcaseDiagnostic} onBack={() => setView("admin")} onPdf={simulatePdf} />}
+        {authReady && view === "stats" && session.role === "admin" && <RegionalStats stats={stats} />}
+        {authReady && view === "detail" && session.role === "admin" && <CompanyDetail company={selectedCompany} result={showcaseDiagnostic} onBack={() => setView("admin")} onPdf={simulatePdf} />}
       </main>
     </div>
   );
@@ -429,7 +484,7 @@ function MobileDrawerContent(props: {
   logout: () => void;
 }) {
   const companyTabs: CompanyTab[] = ["dashboard", "autodiagnostico", "resultado", "recomendaciones", "observaciones", "perfil", "documentacion"];
-  const adminTabs: AdminTab[] = ["panel", "empresas", "diagnosticos", "estadisticas", "observaciones", "reportes", "configuracion"];
+  const adminTabs: AdminTab[] = ["panel", "empresas", "solicitudes", "diagnosticos", "estadisticas", "observaciones", "reportes", "configuracion"];
   const go = (view: View) => {
     props.setView(view);
     props.close();
@@ -501,7 +556,19 @@ function HeaderNav({ session, activeCompany, onNavigate, onLogout }: { session: 
   );
 }
 
-function Landing({ onPortal }: { onPortal: () => void }) {
+function SessionRestoreScreen() {
+  return (
+    <section className="page narrow">
+      <div className="card prepared">
+        <ShieldCheck size={34} />
+        <h2>Restaurando sesión</h2>
+        <p>Estamos validando el acceso institucional antes de mostrar el portal correspondiente.</p>
+      </div>
+    </section>
+  );
+}
+
+function Landing({ onPortal, onRequestAccess }: { onPortal: () => void; onRequestAccess: () => void }) {
   return (
     <section className="hero">
       <div className="hero-copy">
@@ -510,7 +577,7 @@ function Landing({ onPortal }: { onPortal: () => void }) {
         <p>Diagnóstico de madurez corporativa para empresas afiliadas a COPARMEX Nuevo Laredo.</p>
         <div className="hero-actions">
           <button className="primary" onClick={onPortal}>Iniciar sesión</button>
-          <button className="secondary" onClick={onPortal}>Acceso privado</button>
+          <button className="secondary" onClick={onRequestAccess}>Solicitar acceso</button>
         </div>
       </div>
       <div className="hero-panel">
@@ -556,6 +623,73 @@ function AccessHub({ onCompany, onAdmin }: { onCompany: () => void; onAdmin: () 
           <strong>Acceso administrador</strong>
           <span>Gestiona empresas, diagnósticos, estadísticas, observaciones y reportes institucionales.</span>
         </button>
+      </div>
+    </section>
+  );
+}
+
+function AccessRequestScreen({ onBack }: { onBack: () => void }) {
+  const [form, setForm] = useState({
+    folio: "",
+    companyName: "",
+    contactName: "",
+    email: "",
+    phone: "",
+    sector: "Administración y desarrollo empresarial",
+    city: "Nuevo Laredo",
+    state: "Tamaulipas",
+    message: "",
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const update = (field: keyof typeof form, value: string) => setForm((current) => ({ ...current, [field]: value }));
+  const submit = async () => {
+    setError("");
+    setSuccess("");
+
+    if (!form.folio || !form.companyName || !form.contactName || !form.email) {
+      setError("Captura folio, empresa, contacto y correo autorizado.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const requestId = await saveAccessRequest(form);
+      setSuccess(`Solicitud enviada correctamente. Folio de solicitud: ${requestId}`);
+      setForm({ folio: "", companyName: "", contactName: "", email: "", phone: "", sector: "Administración y desarrollo empresarial", city: "Nuevo Laredo", state: "Tamaulipas", message: "" });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No fue posible enviar la solicitud de acceso.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <section className="page narrow">
+      <SectionTitle title="Solicitar acceso" subtitle="Solicitud para empresas previamente registradas por COPARMEX Nuevo Laredo. El acceso queda sujeto a validación administrativa." />
+      <div className="login-card">
+        <Field label="Folio asignado por COPARMEX" value={form.folio} onChange={(value) => update("folio", value)} />
+        <Field label="Nombre de empresa" value={form.companyName} onChange={(value) => update("companyName", value)} />
+        <Field label="Nombre del contacto" value={form.contactName} onChange={(value) => update("contactName", value)} />
+        <Select
+          label="Sector"
+          value={form.sector}
+          onChange={(value) => update("sector", value)}
+          options={["Administración y desarrollo empresarial", "Servicios legales", "Logística y operación", "Servicios notariales", "Gestión empresarial", "Comercio", "Industria", "Servicios profesionales", "Tecnología"]}
+        />
+        <Field label="Correo autorizado" value={form.email} onChange={(value) => update("email", value)} />
+        <Field label="Teléfono" value={form.phone} onChange={(value) => update("phone", value)} />
+        <Field label="Ciudad" value={form.city} onChange={(value) => update("city", value)} />
+        <Field label="Estado" value={form.state} onChange={(value) => update("state", value)} />
+        <Field label="Mensaje u observación" value={form.message} onChange={(value) => update("message", value)} />
+        {error && <p className="form-error">{error}</p>}
+        {success && <p className="save-status success">{success}</p>}
+        <div className="notice"><ShieldCheck size={18} /> El administrador podrá autorizar o rechazar la solicitud después de validar que la empresa corresponda al padrón institucional.</div>
+        <div className="actions-row">
+          <button className="primary" onClick={submit} disabled={loading}>{loading ? "Enviando..." : "Enviar solicitud"}</button>
+          <button className="secondary" onClick={onBack}>Volver al inicio</button>
+        </div>
       </div>
     </section>
   );
@@ -730,13 +864,19 @@ function CompanyPortal({ tab, setTab, company, result, loadingResult, resultErro
 }
 
 function AdminPortal(props: { tab: AdminTab; setTab: (tab: AdminTab) => void; stats: any; selectedCompanyId: string; setSelectedCompanyId: (id: string) => void; setSelectedAdminCompany: (company: AdminCompany | null) => void; setView: (view: View) => void; onPdf: () => void }) {
-  const tabs: AdminTab[] = ["panel", "empresas", "diagnosticos", "estadisticas", "observaciones", "reportes", "configuracion"];
+  const [companyDraft, setCompanyDraft] = useState<AccessRequestRecord | null>(null);
+  const tabs: AdminTab[] = ["panel", "empresas", "solicitudes", "diagnosticos", "estadisticas", "observaciones", "reportes", "configuracion"];
+  const useRequestForCompany = (request: AccessRequestRecord) => {
+    setCompanyDraft(request);
+    props.setTab("empresas");
+  };
   return (
     <section className="portal">
       <Sidebar title="Panel administrativo" items={tabs} active={props.tab} onSelect={props.setTab} />
       <div className="portal-content">
         {props.tab === "panel" && <AdminDashboard stats={props.stats} />}
-        {props.tab === "empresas" && <CompaniesTable setSelectedCompanyId={props.setSelectedCompanyId} setSelectedAdminCompany={props.setSelectedAdminCompany} setView={props.setView} onPdf={props.onPdf} />}
+        {props.tab === "empresas" && <CompaniesTable companyDraft={companyDraft} clearCompanyDraft={() => setCompanyDraft(null)} setSelectedCompanyId={props.setSelectedCompanyId} setSelectedAdminCompany={props.setSelectedAdminCompany} setView={props.setView} onPdf={props.onPdf} />}
+        {props.tab === "solicitudes" && <AccessRequestsPanel onUseForCompany={useRequestForCompany} />}
         {props.tab === "diagnosticos" && <DiagnosticsPanel />}
         {props.tab === "estadisticas" && <RegionalStats stats={props.stats} compact />}
         {props.tab === "observaciones" && <AllObservations />}
@@ -744,6 +884,75 @@ function AdminPortal(props: { tab: AdminTab; setTab: (tab: AdminTab) => void; st
         {props.tab === "configuracion" && <ConfigPanel />}
       </div>
     </section>
+  );
+}
+
+function AccessRequestsPanel({ onUseForCompany }: { onUseForCompany: (request: AccessRequestRecord) => void }) {
+  const [requests, setRequests] = useState<AccessRequestRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  const loadRequests = () => {
+    setLoading(true);
+    listAccessRequests()
+      .then((items) => {
+        setRequests(items);
+        setError("");
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "No fue posible cargar solicitudes."))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadRequests();
+  }, []);
+
+  const markRequest = async (requestId: string, status: "approved" | "rejected") => {
+    setMessage("");
+    setError("");
+    try {
+      await updateAccessRequestStatus(requestId, status);
+      setRequests((current) => current.map((request) => request.id === requestId ? { ...request, status } : request));
+      setMessage(status === "approved" ? "Solicitud autorizada." : "Solicitud rechazada.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No fue posible actualizar la solicitud.");
+    }
+  };
+
+  return (
+    <>
+      <SectionTitle title="Solicitudes de acceso" subtitle="Revisión administrativa de empresas que solicitan acceso al portal ICE." />
+      {loading && <div className="save-status">Cargando solicitudes...</div>}
+      {error && <div className="save-status error">{error}</div>}
+      {message && <div className="save-status success">{message}</div>}
+      {!loading && !requests.length && <div className="card prepared"><FileText size={32} /><h2>Sin solicitudes pendientes</h2><p>Las solicitudes enviadas desde la portada aparecerán en esta sección.</p></div>}
+      <div className="request-grid">
+        {requests.map((request) => (
+          <article className="request-card" key={request.id}>
+            <div className="company-card-head">
+              <span>{request.folio || "Sin folio"}</span>
+              <Badge tone={request.status === "approved" ? "verde" : request.status === "rejected" ? "rojo" : "amarillo"}>{request.status === "approved" ? "Autorizada" : request.status === "rejected" ? "Rechazada" : "Pendiente"}</Badge>
+            </div>
+            <h3>{request.companyName}</h3>
+            <div className="mobile-detail-grid">
+              <p><span>Contacto</span><strong>{request.contactName}</strong></p>
+              <p><span>Correo</span><strong>{request.email}</strong></p>
+              <p><span>Teléfono</span><strong>{request.phone || "No capturado"}</strong></p>
+              <p><span>Sector</span><strong>{request.sector || "No capturado"}</strong></p>
+              <p><span>Ciudad</span><strong>{request.city || "Nuevo Laredo"}</strong></p>
+              <p><span>Estado</span><strong>{request.state || "Tamaulipas"}</strong></p>
+            </div>
+            {request.message && <p className="note"><strong>Observación</strong><span>{request.message}</span></p>}
+            <div className="actions-row">
+              <button className="primary" onClick={() => onUseForCompany(request)}>Usar datos para alta</button>
+              <button className="secondary" onClick={() => markRequest(request.id, "approved")}>Autorizar</button>
+              <button className="secondary" onClick={() => markRequest(request.id, "rejected")}>Rechazar</button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -810,7 +1019,7 @@ function EmptyDiagnosticState({ company, onStart, loading, error }: { company: C
   );
 }
 
-function CompaniesTable({ setSelectedCompanyId, setSelectedAdminCompany, setView, onPdf }: { setSelectedCompanyId: (id: string) => void; setSelectedAdminCompany: (company: AdminCompany | null) => void; setView: (view: View) => void; onPdf: () => void }) {
+function CompaniesTable({ companyDraft, clearCompanyDraft, setSelectedCompanyId, setSelectedAdminCompany, setView, onPdf }: { companyDraft: AccessRequestRecord | null; clearCompanyDraft: () => void; setSelectedCompanyId: (id: string) => void; setSelectedAdminCompany: (company: AdminCompany | null) => void; setView: (view: View) => void; onPdf: () => void }) {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [firestoreCompanies, setFirestoreCompanies] = useState<AdminCompany[]>([]);
   const [loadingCompanies, setLoadingCompanies] = useState(false);
@@ -851,6 +1060,24 @@ function CompaniesTable({ setSelectedCompanyId, setSelectedAdminCompany, setView
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!companyDraft) return;
+    setNewCompany({
+      folio: companyDraft.folio || "",
+      name: companyDraft.companyName || "",
+      sector: companyDraft.sector || "Administración y desarrollo empresarial",
+      representative: companyDraft.contactName || "",
+      city: companyDraft.city || "Nuevo Laredo",
+      state: companyDraft.state || "Tamaulipas",
+      email: companyDraft.email || "",
+      phone: companyDraft.phone || "",
+      followUpStatus: "Sin iniciar",
+    });
+    setShowNewCompany(true);
+    setCompanySaveMessage("Datos de solicitud cargados en el formulario de alta.");
+    clearCompanyDraft();
+  }, [companyDraft, clearCompanyDraft]);
 
   const displayCompanies: AdminCompany[] = [
     ...firestoreCompanies,
@@ -1145,7 +1372,7 @@ function Sidebar<T extends string>({ title, items, active, onSelect }: { title: 
 }
 
 function labelize(value: string) {
-  const labels: Record<string, string> = { autodiagnostico: "Autodiagnóstico", documentacion: "Documentación", estadisticas: "Estadísticas", configuracion: "Configuración", diagnosticos: "Diagnósticos" };
+  const labels: Record<string, string> = { autodiagnostico: "Autodiagnóstico", documentacion: "Documentación", estadisticas: "Estadísticas", configuracion: "Configuración", diagnosticos: "Diagnósticos", solicitudes: "Solicitudes" };
   return labels[value] ?? value.charAt(0).toUpperCase() + value.slice(1);
 }
 

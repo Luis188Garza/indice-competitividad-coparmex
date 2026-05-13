@@ -209,6 +209,15 @@ main { min-height: calc(100vh - 74px); }
 }
 .narrow { width: min(900px, calc(100% - 36px)); }
 .section-title { margin-bottom: 24px; }
+.section-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.section-title-row .section-title { margin-bottom: 0; }
+.section-title-row .primary { flex: 0 0 auto; margin-top: 6px; }
 .eyebrow {
   display: inline-block;
   color: var(--blue);
@@ -234,6 +243,8 @@ main { min-height: calc(100vh - 74px); }
 .secondary { border: 1px solid var(--line); background: white; color: var(--navy); }
 
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.company-form-card { margin-bottom: 18px; }
+.company-form-card h3 { margin: 0 0 16px; color: var(--navy); }
 .field span { display: block; margin-bottom: 7px; color: var(--navy); font-weight: 800; }
 .field input, .field select {
   width: 100%;
@@ -312,6 +323,22 @@ main { min-height: calc(100vh - 74px); }
   color: var(--red);
   font-weight: 700;
 }
+.request-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.request-card {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  box-shadow: 0 10px 24px rgba(9, 40, 74, .05);
+}
+.request-card h3 { margin: 0; color: var(--navy); }
+.request-card .actions-row { margin-top: 4px; }
 
 .split-title, .result-header {
   display: flex;
@@ -664,7 +691,9 @@ main { min-height: calc(100vh - 74px); }
   .icon-button { width: 36px; height: 36px; }
   .hero { padding: 30px 18px; }
   .hero h1 { font-size: 42px; }
-  .hero-grid, .form-grid, .kpi-grid, .document-grid, .role-grid, .action-cards, .segmented, .access-grid, .report-grid, .config-grid { grid-template-columns: 1fr; }
+  .section-title-row { align-items: stretch; flex-direction: column; }
+  .section-title-row .primary { width: 100%; margin-top: 0; }
+  .hero-grid, .form-grid, .kpi-grid, .document-grid, .role-grid, .action-cards, .segmented, .access-grid, .request-grid, .report-grid, .config-grid { grid-template-columns: 1fr; }
   .split-title, .result-header { align-items: stretch; flex-direction: column; }
   .progress-ring { width: 112px; height: 112px; }
   .score-card { min-width: 0; }
