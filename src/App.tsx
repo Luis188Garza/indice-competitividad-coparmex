@@ -15,11 +15,13 @@ import {
   UserRoundCheck,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { diagnosticICE } from "./data/diagnosticICE";
 import { activityLog, companies, diagnostics, documents, observations, roles } from "./data/mockData";
 import { CompanyProfile, DiagnosticResult, SelectedDiagnosticOption } from "./types";
-import { saveDiagnosticResponse } from "./services/diagnosticResponsesService";
+import { loginWithEmail, listenAuthState, logout as firebaseLogout } from "./services/authService";
+import { createCompany, getCompanyByAuthUid, listCompanies } from "./services/companiesService";
+import { getResponsesByCompany, saveDiagnosticResponse } from "./services/diagnosticResponsesService";
 import { calculateDiagnostic, trafficLabel } from "./utils/scoring";
 
 type View = "landing" | "about" | "login" | "loginEmpresa" | "loginAdmin" | "register" | "questionnaire" | "result" | "company" | "admin" | "stats" | "detail";
@@ -27,6 +29,7 @@ type CompanyTab = "dashboard" | "autodiagnostico" | "resultado" | "recomendacion
 type AdminTab = "panel" | "empresas" | "diagnosticos" | "estadisticas" | "observaciones" | "reportes" | "configuracion";
 type Session = { isAuthenticated: boolean; role: "empresa" | "admin" | null; companyId?: string; adminName?: string };
 type AnswerState = Record<string, SelectedDiagnosticOption>;
+type AdminCompany = CompanyProfile & { accessStatus?: string; authUid?: string; folio?: string; source?: "firestore" | "mock" };
 
 const diagnosticModules = diagnosticICE.modules.slice().sort((a, b) => a.order - b.order);
 const diagnosticQuestions = diagnosticModules.flatMap((module) => module.questions.slice().sort((a, b) => a.order - b.order));
@@ -49,38 +52,159 @@ const initialCompany: CompanyProfile = {
 
 const formatDate = (value: string) => new Intl.DateTimeFormat("es-MX", { dateStyle: "medium" }).format(new Date(value));
 
+function mapCompanyRecord(item: Record<string, any>): AdminCompany {
+  return {
+    id: String(item.id),
+    folio: String(item.folio || item.id),
+    name: String(item.name || "Empresa sin nombre"),
+    sector: String(item.sector || "Sin sector"),
+    city: String(item.city || "Nuevo Laredo"),
+    state: String(item.state || "Tamaulipas"),
+    employees: String(item.employees || "No especificado"),
+    years: String(item.years || "No especificado"),
+    email: String(item.email || ""),
+    phone: String(item.phone || ""),
+    representative: String(item.representative || ""),
+    registeredAt: typeof item.registeredAt === "string" ? item.registeredAt : new Date().toISOString().slice(0, 10),
+    followUpStatus: String(item.followUpStatus || item.status || "Sin iniciar") as CompanyProfile["followUpStatus"],
+    interestedInAdvisory: Boolean(item.interestedInAdvisory),
+    accessStatus: String(item.accessStatus || "active"),
+    authUid: item.authUid ? String(item.authUid) : undefined,
+    source: "firestore",
+  };
+}
+
+function getCompanyFolio(company: CompanyProfile | AdminCompany) {
+  return "folio" in company && typeof company.folio === "string" && company.folio ? company.folio : company.id;
+}
+
+function getAnswerStorageKey(companyId: string) {
+  return `ice-diagnostic-answers-${companyId}`;
+}
+
+function mapDiagnosticResponse(item: Record<string, any>): DiagnosticResult {
+  const calculated = item.answers ? calculateDiagnostic(item.answers as AnswerState) : null;
+  return {
+    totalScore: Number(item.totalScore ?? calculated?.totalScore ?? 0),
+    maxScore: Number(item.maxScore ?? calculated?.maxScore ?? diagnosticICE.totalPoints),
+    percentage: Number(item.percentage ?? calculated?.percentage ?? 0),
+    maturity: {
+      level: Number(item.level ?? calculated?.maturity.level ?? 0),
+      title: String(item.maturityTitle ?? calculated?.maturity.title ?? "Sin resultado"),
+      range: String(calculated?.maturity.range ?? ""),
+      trafficLight: String(item.semaphore ?? calculated?.maturity.trafficLight ?? "rojo") as DiagnosticResult["maturity"]["trafficLight"],
+      message: String(item.interpretation ?? calculated?.maturity.message ?? "Aún no hay interpretación disponible."),
+    },
+    moduleScores: Array.isArray(item.moduleScores) ? item.moduleScores as DiagnosticResult["moduleScores"] : calculated?.moduleScores ?? [],
+    findings: calculated?.findings ?? [],
+    recommendations: calculated?.recommendations ?? [],
+    completedAt: typeof item.completedAt === "string" ? item.completedAt : new Date().toISOString(),
+  };
+}
+
 function App() {
   const [view, setView] = useState<View>("landing");
   const [companyTab, setCompanyTab] = useState<CompanyTab>("dashboard");
   const [adminTab, setAdminTab] = useState<AdminTab>("panel");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [selectedCompanyId, setSelectedCompanyId] = useState(companies[0].id);
+  const [selectedAdminCompany, setSelectedAdminCompany] = useState<AdminCompany | null>(null);
   const [session, setSession] = useState<Session>({ isAuthenticated: false, role: null });
+  const [authenticatedCompany, setAuthenticatedCompany] = useState<AdminCompany | null>(() => {
+    if (typeof window === "undefined") return null;
+    const saved = window.localStorage.getItem("ice-current-company");
+    return saved ? JSON.parse(saved) as AdminCompany : null;
+  });
   const [profile, setProfile] = useState<CompanyProfile>(initialCompany);
   const [currentModule, setCurrentModule] = useState(0);
-  const [answers, setAnswers] = useState<AnswerState>(() => {
-    if (typeof window === "undefined") return {};
-    const saved = window.localStorage.getItem("ice-diagnostic-answers");
-    return saved ? JSON.parse(saved) as AnswerState : {};
-  });
+  const [answers, setAnswers] = useState<AnswerState>({});
   const [result, setResult] = useState<DiagnosticResult | null>(null);
+  const [latestCompanyResult, setLatestCompanyResult] = useState<DiagnosticResult | null>(null);
+  const [latestResultLoading, setLatestResultLoading] = useState(false);
+  const [latestResultError, setLatestResultError] = useState("");
   const [saveState, setSaveState] = useState<{ loading: boolean; error: string; success: string }>({ loading: false, error: "", success: "" });
+  const skipNextAnswerSave = useRef(false);
 
   const completedDiagnostics = diagnostics.filter((diagnostic) => diagnostic.status === "Completo" && diagnostic.result);
-  const selectedCompany = companies.find((company) => company.id === selectedCompanyId) ?? companies[0];
+  const selectedCompany = selectedAdminCompany?.id === selectedCompanyId ? selectedAdminCompany : companies.find((company) => company.id === selectedCompanyId) ?? companies[0];
   const selectedDiagnostic = diagnostics.find((diagnostic) => diagnostic.companyId === selectedCompany.id && diagnostic.result);
   const showcaseDiagnostic = selectedDiagnostic?.result ?? completedDiagnostics[0].result!;
-  const sessionCompany = companies.find((company) => company.id === session.companyId);
+  const sessionCompany = authenticatedCompany ?? companies.find((company) => company.id === session.companyId);
   const activeCompany = sessionCompany ?? (profile.name ? profile : companies[0]);
   const activeDiagnostic = diagnostics.find((diagnostic) => diagnostic.companyId === activeCompany.id && diagnostic.result);
-  const activeResult = result ?? activeDiagnostic?.result ?? showcaseDiagnostic;
+  const activeResult = result ?? latestCompanyResult ?? (authenticatedCompany ? null : activeDiagnostic?.result ?? showcaseDiagnostic);
+  const activeCompanyId = activeCompany.id;
   const currentQuestions = diagnosticModules[currentModule].questions.slice().sort((a, b) => a.order - b.order);
   const answeredQuestions = diagnosticQuestions.filter((question) => answers[question.id] !== undefined).length;
   const progress = Math.round((answeredQuestions / diagnosticQuestions.length) * 100);
 
   useEffect(() => {
-    window.localStorage.setItem("ice-diagnostic-answers", JSON.stringify(answers));
-  }, [answers]);
+    if (!activeCompanyId) return;
+    const saved = window.localStorage.getItem(getAnswerStorageKey(activeCompanyId));
+    skipNextAnswerSave.current = true;
+    setAnswers(saved ? JSON.parse(saved) as AnswerState : {});
+    setCurrentModule(0);
+    setResult(null);
+    setSaveState({ loading: false, error: "", success: "" });
+  }, [activeCompanyId]);
+
+  useEffect(() => {
+    if (!activeCompanyId) return;
+    if (skipNextAnswerSave.current) {
+      skipNextAnswerSave.current = false;
+      return;
+    }
+    window.localStorage.setItem(getAnswerStorageKey(activeCompanyId), JSON.stringify(answers));
+  }, [answers, activeCompanyId]);
+
+  useEffect(() => {
+    let mounted = true;
+    if (!authenticatedCompany?.id) {
+      setLatestCompanyResult(null);
+      setLatestResultError("");
+      setLatestResultLoading(false);
+      return;
+    }
+
+    setLatestResultLoading(true);
+    getResponsesByCompany(authenticatedCompany.id)
+      .then((items) => {
+        if (!mounted) return;
+        const latest = items[0] ? mapDiagnosticResponse(items[0] as Record<string, any>) : null;
+        setLatestCompanyResult(latest);
+        setLatestResultError("");
+      })
+      .catch((error) => {
+        if (!mounted) return;
+        setLatestCompanyResult(null);
+        setLatestResultError(error instanceof Error ? error.message : "No fue posible consultar diagnósticos guardados.");
+      })
+      .finally(() => {
+        if (mounted) setLatestResultLoading(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [authenticatedCompany?.id]);
+
+  useEffect(() => {
+    const unsubscribe = listenAuthState(async (user) => {
+      if (!user) return;
+      try {
+        const companyData = await getCompanyByAuthUid(user.uid);
+        if (!companyData) return;
+        const company = mapCompanyRecord(companyData as Record<string, any>);
+        if (company.accessStatus && company.accessStatus.toLowerCase() !== "active") return;
+        setAuthenticatedCompany(company);
+        window.localStorage.setItem("ice-current-company", JSON.stringify(company));
+      } catch {
+        // El login muestra los errores operativos; el listener solo intenta restaurar sesión.
+      }
+    });
+
+    return unsubscribe;
+  }, []);
 
   const stats = useMemo(() => {
     const average = Math.round(completedDiagnostics.reduce((sum, diagnostic) => sum + diagnostic.result!.percentage, 0) / completedDiagnostics.length);
@@ -112,7 +236,11 @@ function App() {
 
     try {
       const responseId = await saveDiagnosticResponse({
-        companyId: activeCompany.id || session.companyId || "TEMP-COMPANY",
+        companyId: activeCompany.id,
+        companyFolio: getCompanyFolio(activeCompany),
+        companyName: activeCompany.name,
+        companySector: activeCompany.sector,
+        companyState: activeCompany.state,
         diagnosticId: diagnosticICE.id,
         diagnosticTitle: diagnosticICE.title,
         answers,
@@ -126,6 +254,10 @@ function App() {
         interpretation: nextResult.maturity.message,
         completedAt: nextResult.completedAt,
       });
+      window.localStorage.removeItem(getAnswerStorageKey(activeCompany.id));
+      skipNextAnswerSave.current = true;
+      setAnswers({});
+      setLatestCompanyResult(nextResult);
       setSaveState({ loading: false, error: "", success: `Diagnóstico guardado correctamente. Folio de respuesta: ${responseId}` });
     } catch (error) {
       const message = error instanceof Error ? error.message : "No fue posible guardar el diagnóstico en Firestore.";
@@ -137,22 +269,52 @@ function App() {
     window.print();
   };
 
+  const startDiagnostic = () => {
+    const saved = window.localStorage.getItem(getAnswerStorageKey(activeCompany.id));
+    setAnswers(saved ? JSON.parse(saved) as AnswerState : {});
+    setCurrentModule(0);
+    setResult(null);
+    setSaveState({ loading: false, error: "", success: "" });
+    setView("questionnaire");
+  };
+
   const logout = () => {
+    if (session.role === "empresa") {
+      void firebaseLogout();
+    }
+    skipNextAnswerSave.current = true;
     setSession({ isAuthenticated: false, role: null });
+    setAuthenticatedCompany(null);
+    setAnswers({});
+    setResult(null);
+    setLatestCompanyResult(null);
+    setLatestResultError("");
+    window.localStorage.removeItem("ice-current-company");
     setView("landing");
     setCompanyTab("dashboard");
     setAdminTab("panel");
   };
 
-  const loginCompany = (folio: string, password: string) => {
-    const company = companies.find((item) => item.id.toLowerCase() === folio.trim().toLowerCase());
-    if (company && password === "demo123") {
-      setSession({ isAuthenticated: true, role: "empresa", companyId: company.id });
-      setSelectedCompanyId(company.id);
-      setView("company");
-      return true;
+  const loginCompany = async (email: string, password: string) => {
+    const credential = await loginWithEmail(email.trim(), password);
+    const companyData = await getCompanyByAuthUid(credential.user.uid);
+
+    if (!companyData) {
+      await firebaseLogout();
+      throw new Error("No encontramos una empresa vinculada a este usuario.");
     }
-    return false;
+
+    const company = mapCompanyRecord(companyData as Record<string, any>);
+    if (company.accessStatus && company.accessStatus.toLowerCase() !== "active") {
+      await firebaseLogout();
+      throw new Error("El acceso de esta empresa no está activo.");
+    }
+
+    setAuthenticatedCompany(company);
+    window.localStorage.setItem("ice-current-company", JSON.stringify(company));
+    setSession({ isAuthenticated: true, role: "empresa", companyId: company.id });
+    setSelectedCompanyId(company.id);
+    setView("company");
   };
 
   const loginAdmin = (user: string, password: string) => {
@@ -230,7 +392,9 @@ function App() {
             setTab={setCompanyTab}
             company={activeCompany}
             result={activeResult}
-            onStart={() => setView("questionnaire")}
+            loadingResult={latestResultLoading}
+            resultError={latestResultError}
+            onStart={startDiagnostic}
             onPdf={simulatePdf}
           />
         )}
@@ -241,6 +405,7 @@ function App() {
             stats={stats}
             selectedCompanyId={selectedCompanyId}
             setSelectedCompanyId={setSelectedCompanyId}
+            setSelectedAdminCompany={setSelectedAdminCompany}
             setView={setView}
             onPdf={simulatePdf}
           />
@@ -284,7 +449,7 @@ function MobileDrawerContent(props: {
   if (props.session.role === "empresa") {
     return (
       <>
-        <div className="drawer-session"><strong>{props.activeCompany.name}</strong><span>Folio: {props.activeCompany.id}</span></div>
+        <div className="drawer-session"><strong>{props.activeCompany.name}</strong><span>Folio: {getCompanyFolio(props.activeCompany)}</span></div>
         {companyTabs.map((tab) => (
           <button key={tab} className={props.companyTab === tab ? "active" : ""} onClick={() => { props.setCompanyTab(tab); props.setView("company"); props.close(); }}>{labelize(tab)}</button>
         ))}
@@ -322,7 +487,7 @@ function HeaderNav({ session, activeCompany, onNavigate, onLogout }: { session: 
         <span className="session-pill">
           <small>Empresa</small>
           <strong>{activeCompany.name}</strong>
-          <em>Folio: {activeCompany.id}</em>
+          <em>Folio: {getCompanyFolio(activeCompany)}</em>
         </span>
       ) : (
         <span className="session-pill admin-pill">
@@ -396,18 +561,34 @@ function AccessHub({ onCompany, onAdmin }: { onCompany: () => void; onAdmin: () 
   );
 }
 
-function CompanyLogin({ onLogin }: { onLogin: (folio: string, password: string) => boolean }) {
-  const [folio, setFolio] = useState("COP-001");
-  const [password, setPassword] = useState("demo123");
+function CompanyLogin({ onLogin }: { onLogin: (email: string, password: string) => Promise<void> }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const submit = async () => {
+    setError("");
+    setSuccess("");
+    setLoading(true);
+    try {
+      await onLogin(email, password);
+      setSuccess("Acceso validado. Cargando portal empresa...");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No fue posible iniciar sesión.");
+    } finally {
+      setLoading(false);
+    }
+  };
   return (
     <section className="page narrow">
-      <SectionTitle title="Acceso empresa" subtitle="Utiliza el folio asignado por COPARMEX Nuevo Laredo." />
+      <SectionTitle title="Acceso empresa" subtitle="Utiliza el correo autorizado por COPARMEX Nuevo Laredo." />
       <div className="login-card">
-        <Field label="Folio de empresa" value={folio} onChange={setFolio} />
+        <Field label="Correo" value={email} onChange={setEmail} />
         <PasswordField label="Contraseña" value={password} onChange={setPassword} />
         {error && <p className="form-error">{error}</p>}
-        <button className="primary" onClick={() => onLogin(folio, password) || setError("Folio o contraseña incorrectos.")}>Ingresar al portal empresa</button>
+        {success && <p className="save-status success">{success}</p>}
+        <button className="primary" onClick={submit} disabled={loading || !email || !password}>{loading ? "Validando acceso..." : "Ingresar al portal empresa"}</button>
       </div>
     </section>
   );
@@ -530,16 +711,16 @@ function ResultScreen({ company, result, saveState, onPdf, onPortal }: { company
   );
 }
 
-function CompanyPortal({ tab, setTab, company, result, onStart, onPdf }: { tab: CompanyTab; setTab: (tab: CompanyTab) => void; company: CompanyProfile; result: DiagnosticResult; onStart: () => void; onPdf: () => void }) {
+function CompanyPortal({ tab, setTab, company, result, loadingResult, resultError, onStart, onPdf }: { tab: CompanyTab; setTab: (tab: CompanyTab) => void; company: CompanyProfile; result: DiagnosticResult | null; loadingResult: boolean; resultError: string; onStart: () => void; onPdf: () => void }) {
   const tabs: CompanyTab[] = ["dashboard", "autodiagnostico", "resultado", "recomendaciones", "observaciones", "perfil", "documentacion"];
   return (
     <section className="portal">
       <Sidebar title="Portal empresa" items={tabs} active={tab} onSelect={setTab} />
       <div className="portal-content">
-        {tab === "dashboard" && <CompanyDashboard company={company} result={result} onStart={onStart} />}
+        {tab === "dashboard" && <CompanyDashboard company={company} result={result} loadingResult={loadingResult} resultError={resultError} onStart={onStart} onResults={() => setTab("resultado")} />}
         {tab === "autodiagnostico" && <PrepPanel onStart={onStart} />}
-        {tab === "resultado" && <ResultScreen company={company} result={result} saveState={{ loading: false, error: "", success: "" }} onPdf={onPdf} onPortal={() => setTab("dashboard")} />}
-        {tab === "recomendaciones" && <InsightList title="Plan de acción recomendado" items={result.recommendations} />}
+        {tab === "resultado" && (result ? <ResultScreen company={company} result={result} saveState={{ loading: false, error: "", success: "" }} onPdf={onPdf} onPortal={() => setTab("dashboard")} /> : <EmptyDiagnosticState company={company} onStart={onStart} loading={loadingResult} error={resultError} />)}
+        {tab === "recomendaciones" && (result ? <InsightList title="Plan de acción recomendado" items={result.recommendations} /> : <EmptyDiagnosticState company={company} onStart={onStart} loading={loadingResult} error={resultError} />)}
         {tab === "observaciones" && <ObservationList companyId={company.id} />}
         {tab === "perfil" && <ProfileCard company={company} result={result} />}
         {tab === "documentacion" && <DocumentsPanel companyId={company.id} />}
@@ -548,14 +729,14 @@ function CompanyPortal({ tab, setTab, company, result, onStart, onPdf }: { tab: 
   );
 }
 
-function AdminPortal(props: { tab: AdminTab; setTab: (tab: AdminTab) => void; stats: any; selectedCompanyId: string; setSelectedCompanyId: (id: string) => void; setView: (view: View) => void; onPdf: () => void }) {
+function AdminPortal(props: { tab: AdminTab; setTab: (tab: AdminTab) => void; stats: any; selectedCompanyId: string; setSelectedCompanyId: (id: string) => void; setSelectedAdminCompany: (company: AdminCompany | null) => void; setView: (view: View) => void; onPdf: () => void }) {
   const tabs: AdminTab[] = ["panel", "empresas", "diagnosticos", "estadisticas", "observaciones", "reportes", "configuracion"];
   return (
     <section className="portal">
       <Sidebar title="Panel administrativo" items={tabs} active={props.tab} onSelect={props.setTab} />
       <div className="portal-content">
         {props.tab === "panel" && <AdminDashboard stats={props.stats} />}
-        {props.tab === "empresas" && <CompaniesTable setSelectedCompanyId={props.setSelectedCompanyId} setView={props.setView} onPdf={props.onPdf} />}
+        {props.tab === "empresas" && <CompaniesTable setSelectedCompanyId={props.setSelectedCompanyId} setSelectedAdminCompany={props.setSelectedAdminCompany} setView={props.setView} onPdf={props.onPdf} />}
         {props.tab === "diagnosticos" && <DiagnosticsPanel />}
         {props.tab === "estadisticas" && <RegionalStats stats={props.stats} compact />}
         {props.tab === "observaciones" && <AllObservations />}
@@ -587,31 +768,105 @@ function AdminDashboard({ stats }: { stats: any }) {
   );
 }
 
-function CompanyDashboard({ company, result, onStart }: { company: CompanyProfile; result: DiagnosticResult; onStart: () => void }) {
+function CompanyDashboard({ company, result, loadingResult, resultError, onStart, onResults }: { company: CompanyProfile; result: DiagnosticResult | null; loadingResult: boolean; resultError: string; onStart: () => void; onResults: () => void }) {
+  if (!result) {
+    return <EmptyDiagnosticState company={company} onStart={onStart} loading={loadingResult} error={resultError} />;
+  }
+
   return (
     <>
       <ResultHeader company={company} result={result} compact />
       <div className="kpi-grid">
-        <Kpi icon={<LayoutDashboard />} label="Folio institucional" value={company.id} />
+        <Kpi icon={<LayoutDashboard />} label="Folio institucional" value={getCompanyFolio(company)} />
         <Kpi icon={<BarChart3 />} label="Cumplimiento global" value={`${result.percentage}%`} />
         <Kpi icon={<ShieldCheck />} label="Semáforo" value={trafficLabel(result.maturity.trafficLight)} />
         <Kpi icon={<FileText />} label="Observaciones nuevas" value={observations.filter((obs) => obs.companyId === company.id).length} />
       </div>
       <TwoColumns left={<ModuleBars scores={result.moduleScores} />} right={<InsightList title="Acciones recomendadas" items={result.recommendations.slice(0, 4)} />} />
-      <button className="primary" onClick={onStart}>Actualizar diagnóstico</button>
+      <div className="actions-row">
+        <button className="primary" onClick={onResults}>Ver resultados</button>
+        <button className="secondary" onClick={onStart}>Realizar nuevo diagn?stico</button>
+      </div>
     </>
   );
 }
 
-function CompaniesTable({ setSelectedCompanyId, setView, onPdf }: { setSelectedCompanyId: (id: string) => void; setView: (view: View) => void; onPdf: () => void }) {
+function EmptyDiagnosticState({ company, onStart, loading, error }: { company: CompanyProfile; onStart: () => void; loading: boolean; error: string }) {
+  return (
+    <div className="card prepared empty-diagnostic">
+      <ClipboardList size={34} />
+      <h2>Aún no has realizado tu autodiagnóstico ICE.</h2>
+      <p>Cuando completes el diagnóstico, aquí se mostrará el porcentaje de cumplimiento, nivel de madurez, semáforo corporativo y recomendaciones de {company.name}.</p>
+      {loading && <div className="save-status">Consultando diagnósticos guardados...</div>}
+      {error && <div className="save-status error">{error}</div>}
+      <div className="kpi-grid">
+        <Kpi icon={<LayoutDashboard />} label="Folio institucional" value={getCompanyFolio(company)} />
+        <Kpi icon={<Building2 />} label="Empresa" value={company.name} />
+        <Kpi icon={<FileText />} label="Sector" value={company.sector} />
+        <Kpi icon={<ShieldCheck />} label="Estado" value={company.state} />
+      </div>
+      <button className="primary" onClick={onStart}>Iniciar diagnóstico</button>
+    </div>
+  );
+}
+
+function CompaniesTable({ setSelectedCompanyId, setSelectedAdminCompany, setView, onPdf }: { setSelectedCompanyId: (id: string) => void; setSelectedAdminCompany: (company: AdminCompany | null) => void; setView: (view: View) => void; onPdf: () => void }) {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
-  const companyRows = companies.map((company) => ({
+  const [firestoreCompanies, setFirestoreCompanies] = useState<AdminCompany[]>([]);
+  const [loadingCompanies, setLoadingCompanies] = useState(false);
+  const [companiesError, setCompaniesError] = useState("");
+  const [showNewCompany, setShowNewCompany] = useState(false);
+  const [savingCompany, setSavingCompany] = useState(false);
+  const [companySaveMessage, setCompanySaveMessage] = useState("");
+  const [companySaveError, setCompanySaveError] = useState("");
+  const [newCompany, setNewCompany] = useState({
+    folio: "",
+    name: "",
+    sector: "Administración y desarrollo empresarial",
+    representative: "",
+    city: "Nuevo Laredo",
+    state: "Tamaulipas",
+    email: "",
+    phone: "",
+    followUpStatus: "Sin iniciar",
+  });
+
+  useEffect(() => {
+    let mounted = true;
+    setLoadingCompanies(true);
+    listCompanies()
+      .then((items) => {
+        if (!mounted) return;
+        setFirestoreCompanies(items.map((item) => mapCompanyRecord(item as Record<string, any>)));
+        setCompaniesError("");
+      })
+      .catch(() => {
+        if (mounted) setCompaniesError("No fue posible cargar empresas desde Firestore. Se muestra el listado institucional local.");
+      })
+      .finally(() => {
+        if (mounted) setLoadingCompanies(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const displayCompanies: AdminCompany[] = [
+    ...firestoreCompanies,
+    ...companies
+      .filter((company) => !firestoreCompanies.some((item) => item.id === company.id))
+      .map((company) => ({ ...company, source: "mock" as const })),
+  ];
+
+  const companyRows = displayCompanies.map((company) => ({
     company,
     diagnostic: diagnostics.find((item) => item.companyId === company.id && item.result),
     observations: observations.filter((observation) => observation.companyId === company.id).length,
   }));
-  const openDetail = (companyId: string) => {
-    setSelectedCompanyId(companyId);
+  const openDetail = (company: AdminCompany) => {
+    setSelectedCompanyId(company.id);
+    setSelectedAdminCompany(company);
     setView("detail");
     setOpenMenu(null);
   };
@@ -619,10 +874,119 @@ function CompaniesTable({ setSelectedCompanyId, setView, onPdf }: { setSelectedC
     setOpenMenu(null);
     onPdf();
   };
+  const updateNewCompany = (field: keyof typeof newCompany, value: string) => {
+    setNewCompany((current) => ({ ...current, [field]: value }));
+  };
+  const saveNewCompany = async () => {
+    const folio = newCompany.folio.trim().toUpperCase();
+    const name = newCompany.name.trim();
+    const email = newCompany.email.trim();
+
+    setCompanySaveMessage("");
+    setCompanySaveError("");
+
+    if (!folio || !name || !email) {
+      setCompanySaveError("Captura folio, nombre de empresa y correo autorizado.");
+      return;
+    }
+
+    setSavingCompany(true);
+    try {
+      await createCompany({
+        id: folio,
+        folio,
+        name,
+        sector: newCompany.sector,
+        representative: newCompany.representative,
+        city: newCompany.city,
+        state: newCompany.state,
+        email,
+        phone: newCompany.phone,
+        followUpStatus: newCompany.followUpStatus,
+        registeredAt: new Date().toISOString().slice(0, 10),
+        interestedInAdvisory: false,
+        status: "Activa",
+      });
+
+      const created: AdminCompany = {
+        id: folio,
+        folio,
+        name,
+        sector: newCompany.sector,
+        representative: newCompany.representative,
+        city: newCompany.city,
+        state: newCompany.state,
+        email,
+        phone: newCompany.phone,
+        employees: "No especificado",
+        years: "No especificado",
+        registeredAt: new Date().toISOString().slice(0, 10),
+        followUpStatus: newCompany.followUpStatus as CompanyProfile["followUpStatus"],
+        interestedInAdvisory: false,
+        source: "firestore",
+      };
+
+      setFirestoreCompanies((current) => [created, ...current.filter((company) => company.id !== folio)]);
+      setCompanySaveMessage("Empresa registrada correctamente en Firestore.");
+      setShowNewCompany(false);
+      setNewCompany({
+        folio: "",
+        name: "",
+        sector: "Administración y desarrollo empresarial",
+        representative: "",
+        city: "Nuevo Laredo",
+        state: "Tamaulipas",
+        email: "",
+        phone: "",
+        followUpStatus: "Sin iniciar",
+      });
+    } catch (error) {
+      setCompanySaveError(error instanceof Error ? error.message : "No fue posible guardar la empresa.");
+    } finally {
+      setSavingCompany(false);
+    }
+  };
 
   return (
     <>
-      <SectionTitle title="Empresas" subtitle="Listado operativo para seguimiento institucional, observaciones y reportes." />
+      <div className="section-title-row">
+        <SectionTitle title="Empresas" subtitle="Listado operativo para seguimiento institucional, observaciones y reportes." />
+        <button className="primary" onClick={() => setShowNewCompany((value) => !value)}>{showNewCompany ? "Cerrar formulario" : "Nueva empresa"}</button>
+      </div>
+      {loadingCompanies && <div className="save-status">Cargando empresas registradas...</div>}
+      {companiesError && <div className="save-status error">{companiesError}</div>}
+      {companySaveMessage && <div className="save-status success">{companySaveMessage}</div>}
+      {companySaveError && <div className="save-status error">{companySaveError}</div>}
+      {showNewCompany && (
+        <div className="card company-form-card">
+          <h3>Alta de empresa</h3>
+          <div className="form-grid">
+            <Field label="Folio" value={newCompany.folio} onChange={(value) => updateNewCompany("folio", value)} />
+            <Field label="Nombre de empresa" value={newCompany.name} onChange={(value) => updateNewCompany("name", value)} />
+            <Select
+              label="Sector"
+              value={newCompany.sector}
+              onChange={(value) => updateNewCompany("sector", value)}
+              options={["Administración y desarrollo empresarial", "Servicios legales", "Logística y operación", "Servicios notariales", "Gestión empresarial", "Comercio", "Industria", "Servicios profesionales", "Tecnología"]}
+            />
+            <Field label="Representante" value={newCompany.representative} onChange={(value) => updateNewCompany("representative", value)} />
+            <Field label="Ciudad" value={newCompany.city} onChange={(value) => updateNewCompany("city", value)} />
+            <Field label="Estado" value={newCompany.state} onChange={(value) => updateNewCompany("state", value)} />
+            <Field label="Correo autorizado" value={newCompany.email} onChange={(value) => updateNewCompany("email", value)} />
+            <Field label="Teléfono" value={newCompany.phone} onChange={(value) => updateNewCompany("phone", value)} />
+            <Select
+              label="Seguimiento"
+              value={newCompany.followUpStatus}
+              onChange={(value) => updateNewCompany("followUpStatus", value)}
+              options={["Sin iniciar", "En seguimiento", "Asesoría solicitada", "Cerrado"]}
+            />
+          </div>
+          <div className="actions-row">
+            <button className="primary" onClick={saveNewCompany} disabled={savingCompany}>{savingCompany ? "Guardando..." : "Guardar empresa"}</button>
+            <button className="secondary" onClick={() => setShowNewCompany(false)}>Cancelar</button>
+          </div>
+        </div>
+      )}
       <div className="admin-company-table">
         <div className="admin-company-row admin-company-head">
           <span>Folio</span>
@@ -638,7 +1002,7 @@ function CompaniesTable({ setSelectedCompanyId, setView, onPdf }: { setSelectedC
         </div>
         {companyRows.map(({ company, diagnostic, observations: companyObservations }) => (
           <div className="admin-company-row" key={company.id}>
-            <span>{company.id}</span>
+            <span>{getCompanyFolio(company)}</span>
             <span className="company-cell">{company.name}</span>
             <span>{company.sector}</span>
             <span>{company.representative}</span>
@@ -652,7 +1016,7 @@ function CompaniesTable({ setSelectedCompanyId, setView, onPdf }: { setSelectedC
                 companyId={company.id}
                 openMenu={openMenu}
                 setOpenMenu={setOpenMenu}
-                onDetail={openDetail}
+                onDetail={() => openDetail(company)}
                 onReport={downloadReport}
               />
             </span>
@@ -663,12 +1027,12 @@ function CompaniesTable({ setSelectedCompanyId, setView, onPdf }: { setSelectedC
         {companyRows.map(({ company, diagnostic, observations: companyObservations }) => (
           <article className="company-admin-card" key={company.id}>
             <div className="company-card-head">
-              <span>{company.id}</span>
+              <span>{getCompanyFolio(company)}</span>
               <ActionMenu
                 companyId={company.id}
                 openMenu={openMenu}
                 setOpenMenu={setOpenMenu}
-                onDetail={openDetail}
+                onDetail={() => openDetail(company)}
                 onReport={downloadReport}
               />
             </div>
@@ -689,14 +1053,14 @@ function CompaniesTable({ setSelectedCompanyId, setView, onPdf }: { setSelectedC
   );
 }
 
-function ActionMenu({ companyId, openMenu, setOpenMenu, onDetail, onReport }: { companyId: string; openMenu: string | null; setOpenMenu: (id: string | null) => void; onDetail: (companyId: string) => void; onReport: () => void }) {
+function ActionMenu({ companyId, openMenu, setOpenMenu, onDetail, onReport }: { companyId: string; openMenu: string | null; setOpenMenu: (id: string | null) => void; onDetail: () => void; onReport: () => void }) {
   const isOpen = openMenu === companyId;
   return (
     <div className="action-menu-wrap">
       <button className="kebab-action" aria-label="Más acciones" title="Más acciones" onClick={() => setOpenMenu(isOpen ? null : companyId)}>⋯</button>
       {isOpen && (
         <div className="action-menu">
-          <button onClick={() => onDetail(companyId)}><Eye size={15} /> Ver detalle</button>
+          <button onClick={onDetail}><Eye size={15} /> Ver detalle</button>
           <button onClick={onReport}><FileText size={15} /> Descargar reporte</button>
           <button onClick={() => setOpenMenu(null)}><MessageSquarePlus size={15} /> Agregar observación</button>
         </div>
@@ -867,8 +1231,8 @@ function AllObservations() {
   return <div className="card"><h3>Observaciones institucionales</h3>{observations.map((observation) => <p className="note" key={observation.id}><strong>{companies.find((company) => company.id === observation.companyId)?.name}</strong><span>{formatDate(observation.date)} - {observation.author}</span>{observation.text}</p>)}</div>;
 }
 
-function ProfileCard({ company, result }: { company: CompanyProfile; result: DiagnosticResult }) {
-  return <div className="card profile"><h3>Perfil empresa</h3>{[["Nombre", company.name], ["Folio", company.id], ["Sector", company.sector], ["Ciudad", company.city], ["Estado", company.state], ["Representante", company.representative], ["Correo", company.email], ["Teléfono", company.phone], ["Registro", formatDate(company.registeredAt)], ["Seguimiento", company.followUpStatus], ["Madurez", result.maturity.title]].map(([label, value]) => <p key={label}><span>{label}</span><strong>{value}</strong></p>)}</div>;
+function ProfileCard({ company, result }: { company: CompanyProfile; result: DiagnosticResult | null }) {
+  return <div className="card profile"><h3>Perfil empresa</h3>{[["Nombre", company.name], ["Folio", getCompanyFolio(company)], ["Sector", company.sector], ["Ciudad", company.city], ["Estado", company.state], ["Representante", company.representative], ["Correo", company.email], ["Teléfono", company.phone], ["Registro", formatDate(company.registeredAt)], ["Seguimiento", company.followUpStatus], ["Madurez", result?.maturity.title ?? "Sin diagnóstico"]].map(([label, value]) => <p key={label}><span>{label}</span><strong>{value}</strong></p>)}</div>;
 }
 
 function DocumentsPanel({ companyId }: { companyId: string }) {

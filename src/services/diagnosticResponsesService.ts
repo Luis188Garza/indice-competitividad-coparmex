@@ -34,10 +34,15 @@ export async function getResponsesByCompany(companyId: string) {
     query(
       collection(firestore, "diagnosticResponses"),
       where("companyId", "==", companyId),
-      orderBy("createdAt", "desc"),
     ),
   );
-  return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+  return snapshot.docs
+    .map((item) => ({ id: item.id, ...item.data() }))
+    .sort((a: Record<string, any>, b: Record<string, any>) => {
+      const left = a.createdAt?.toMillis?.() ?? Date.parse(a.completedAt ?? "") ?? 0;
+      const right = b.createdAt?.toMillis?.() ?? Date.parse(b.completedAt ?? "") ?? 0;
+      return right - left;
+    });
 }
 
 export async function listDiagnosticResponses() {
