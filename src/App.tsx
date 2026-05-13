@@ -19,8 +19,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { diagnosticICE } from "./data/diagnosticICE";
 import { activityLog, companies, diagnostics, documents, observations, roles } from "./data/mockData";
 import { CompanyProfile, DiagnosticResult, SelectedDiagnosticOption } from "./types";
-import { loginWithEmail, listenAuthState, logout as firebaseLogout } from "./services/authService";
-import { createCompany, getCompanyByAuthUid, listCompanies } from "./services/companiesService";
+import { changeCurrentUserPassword, loginWithEmail, listenAuthState, logout as firebaseLogout } from "./services/authService";
+import { createCompany, getCompanyByAuthUid, listCompanies, updateCompany } from "./services/companiesService";
 import { listAccessRequests, saveAccessRequest, updateAccessRequestStatus, type AccessRequestRecord } from "./services/accessRequestsService";
 import { getResponsesByCompany, saveDiagnosticResponse } from "./services/diagnosticResponsesService";
 import { calculateDiagnostic, trafficLabel } from "./utils/scoring";
@@ -30,7 +30,7 @@ type CompanyTab = "dashboard" | "autodiagnostico" | "resultado" | "recomendacion
 type AdminTab = "panel" | "empresas" | "solicitudes" | "diagnosticos" | "estadisticas" | "observaciones" | "reportes" | "configuracion";
 type Session = { isAuthenticated: boolean; role: "empresa" | "admin" | null; companyId?: string; adminName?: string };
 type AnswerState = Record<string, SelectedDiagnosticOption>;
-type AdminCompany = CompanyProfile & { accessStatus?: string; authUid?: string; folio?: string; source?: "firestore" | "mock" };
+type AdminCompany = CompanyProfile & { accessStatus?: string; authUid?: string; folio?: string; mustChangePassword?: boolean; source?: "firestore" | "mock" };
 
 const diagnosticModules = diagnosticICE.modules.slice().sort((a, b) => a.order - b.order);
 const diagnosticQuestions = diagnosticModules.flatMap((module) => module.questions.slice().sort((a, b) => a.order - b.order));
@@ -71,6 +71,7 @@ function mapCompanyRecord(item: Record<string, any>): AdminCompany {
     interestedInAdvisory: Boolean(item.interestedInAdvisory),
     accessStatus: String(item.accessStatus || "active"),
     authUid: item.authUid ? String(item.authUid) : undefined,
+    mustChangePassword: Boolean(item.mustChangePassword),
     source: "firestore",
   };
 }
@@ -81,6 +82,41 @@ function getCompanyFolio(company: CompanyProfile | AdminCompany) {
 
 function getAnswerStorageKey(companyId: string) {
   return `ice-diagnostic-answers-${companyId}`;
+}
+
+function getSuggestedTemporaryPassword(folio?: string) {
+  const cleanFolio = folio?.trim() || "COPARMEX";
+  return `ICE-${cleanFolio}-2026*`;
+}
+
+function normalizePhoneForWhatsapp(phone?: string) {
+  return (phone || "").replace(/\D/g, "");
+}
+
+function getAccessMessage(request: AccessRequestRecord) {
+  const temporaryPassword = request.suggestedTemporaryPassword || getSuggestedTemporaryPassword(request.folio);
+  const greetingName = request.contactName || request.companyName;
+  return `Hola, ${greetingName}.
+
+Tu solicitud de acceso al Diagnóstico ICE COPARMEX fue aprobada.
+
+Usuario: ${request.email}
+Contraseña temporal: ${temporaryPassword}
+
+Al ingresar por primera vez, el sistema te pedirá crear una nueva contraseña personal.
+
+Ingresa a la plataforma para realizar tu autodiagnóstico.`;
+}
+
+function getRequestComments(request: AccessRequestRecord) {
+  return request.comments || request.message || "";
+}
+
+function formatRequestDate(value: unknown) {
+  if (!value) return "No disponible";
+  if (typeof value === "string") return formatDate(value);
+  const millis = (value as { toMillis?: () => number }).toMillis?.();
+  return millis ? formatDate(new Date(millis).toISOString()) : "No disponible";
 }
 
 function mapDiagnosticResponse(item: Record<string, any>): DiagnosticResult {
@@ -144,6 +180,7 @@ function App() {
   const activeDiagnostic = diagnostics.find((diagnostic) => diagnostic.companyId === activeCompany.id && diagnostic.result);
   const activeResult = result ?? latestCompanyResult ?? (authenticatedCompany ? null : activeDiagnostic?.result ?? showcaseDiagnostic);
   const activeCompanyId = activeCompany.id;
+  const requiresPasswordChange = session.role === "empresa" && Boolean(authenticatedCompany?.mustChangePassword);
   const currentQuestions = diagnosticModules[currentModule].questions.slice().sort((a, b) => a.order - b.order);
   const answeredQuestions = diagnosticQuestions.filter((question) => answers[question.id] !== undefined).length;
   const progress = Math.round((answeredQuestions / diagnosticQuestions.length) * 100);
@@ -311,7 +348,7 @@ function App() {
       setLatestCompanyResult(nextResult);
       setSaveState({ loading: false, error: "", success: `Diagnóstico guardado correctamente. Folio de respuesta: ${responseId}` });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "No fue posible guardar el diagnóstico en Firestore.";
+      const message = error instanceof Error ? error.message : "No fue posible guardar el diagnóstico en el sistema.";
       setSaveState({ loading: false, error: message, success: "" });
     }
   };
@@ -345,6 +382,14 @@ function App() {
     setView("landing");
     setCompanyTab("dashboard");
     setAdminTab("panel");
+  };
+
+  const completePasswordChange = () => {
+    if (!authenticatedCompany) return;
+    const updatedCompany = { ...authenticatedCompany, mustChangePassword: false };
+    setAuthenticatedCompany(updatedCompany);
+    window.localStorage.setItem("ice-current-company", JSON.stringify(updatedCompany));
+    setView("company");
   };
 
   const loginCompany = async (email: string, password: string) => {
@@ -427,7 +472,8 @@ function App() {
         {authReady && view === "loginAdmin" && <AdminLogin onLogin={loginAdmin} />}
         {authReady && view === "requestAccess" && <AccessRequestScreen onBack={() => setView("landing")} />}
         {authReady && view === "register" && <Register profile={profile} setProfile={setProfile} onNext={() => setView("questionnaire")} />}
-        {authReady && view === "questionnaire" && (
+        {authReady && requiresPasswordChange && <PasswordChangeScreen company={authenticatedCompany!} onChanged={completePasswordChange} onLogout={logout} />}
+        {authReady && !requiresPasswordChange && view === "questionnaire" && (
           <Questionnaire
             currentModule={currentModule}
             setCurrentModule={setCurrentModule}
@@ -438,10 +484,10 @@ function App() {
             onComplete={completeDiagnostic}
           />
         )}
-        {authReady && view === "result" && result && (
+        {authReady && !requiresPasswordChange && view === "result" && result && (
           <ResultScreen company={activeCompany} result={result} saveState={saveState} onPdf={simulatePdf} onPortal={() => { setSession({ isAuthenticated: true, role: "empresa", companyId: session.companyId }); setView("company"); }} />
         )}
-        {authReady && view === "company" && session.role === "empresa" && (
+        {authReady && !requiresPasswordChange && view === "company" && session.role === "empresa" && (
           <CompanyPortal
             tab={companyTab}
             setTab={setCompanyTab}
@@ -635,10 +681,11 @@ function AccessRequestScreen({ onBack }: { onBack: () => void }) {
     contactName: "",
     email: "",
     phone: "",
+    rfc: "",
     sector: "Administración y desarrollo empresarial",
     city: "Nuevo Laredo",
     state: "Tamaulipas",
-    message: "",
+    comments: "",
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -657,7 +704,7 @@ function AccessRequestScreen({ onBack }: { onBack: () => void }) {
     try {
       const requestId = await saveAccessRequest(form);
       setSuccess(`Solicitud enviada correctamente. Folio de solicitud: ${requestId}`);
-      setForm({ folio: "", companyName: "", contactName: "", email: "", phone: "", sector: "Administración y desarrollo empresarial", city: "Nuevo Laredo", state: "Tamaulipas", message: "" });
+      setForm({ folio: "", companyName: "", contactName: "", email: "", phone: "", rfc: "", sector: "Administración y desarrollo empresarial", city: "Nuevo Laredo", state: "Tamaulipas", comments: "" });
     } catch (err) {
       setError(err instanceof Error ? err.message : "No fue posible enviar la solicitud de acceso.");
     } finally {
@@ -671,6 +718,7 @@ function AccessRequestScreen({ onBack }: { onBack: () => void }) {
       <div className="login-card">
         <Field label="Folio asignado por COPARMEX" value={form.folio} onChange={(value) => update("folio", value)} />
         <Field label="Nombre de empresa" value={form.companyName} onChange={(value) => update("companyName", value)} />
+        <Field label="RFC" value={form.rfc} onChange={(value) => update("rfc", value)} />
         <Field label="Nombre del contacto" value={form.contactName} onChange={(value) => update("contactName", value)} />
         <Select
           label="Sector"
@@ -682,7 +730,7 @@ function AccessRequestScreen({ onBack }: { onBack: () => void }) {
         <Field label="Teléfono" value={form.phone} onChange={(value) => update("phone", value)} />
         <Field label="Ciudad" value={form.city} onChange={(value) => update("city", value)} />
         <Field label="Estado" value={form.state} onChange={(value) => update("state", value)} />
-        <Field label="Mensaje u observación" value={form.message} onChange={(value) => update("message", value)} />
+        <Field label="Comentarios" value={form.comments} onChange={(value) => update("comments", value)} />
         {error && <p className="form-error">{error}</p>}
         {success && <p className="save-status success">{success}</p>}
         <div className="notice"><ShieldCheck size={18} /> El administrador podrá autorizar o rechazar la solicitud después de validar que la empresa corresponda al padrón institucional.</div>
@@ -690,6 +738,69 @@ function AccessRequestScreen({ onBack }: { onBack: () => void }) {
           <button className="primary" onClick={submit} disabled={loading}>{loading ? "Enviando..." : "Enviar solicitud"}</button>
           <button className="secondary" onClick={onBack}>Volver al inicio</button>
         </div>
+      </div>
+    </section>
+  );
+}
+
+function PasswordChangeScreen({ company, onChanged, onLogout }: { company: AdminCompany; onChanged: () => void; onLogout: () => void }) {
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const submit = async () => {
+    setError("");
+    setSuccess("");
+
+    if (!newPassword.trim()) {
+      setError("Captura una nueva contraseña.");
+      return;
+    }
+
+    if (newPassword.length < 8) {
+      setError("La nueva contraseña debe tener al menos 8 caracteres.");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setError("La confirmación no coincide con la nueva contraseña.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await changeCurrentUserPassword(newPassword);
+      await updateCompany(company.id, {
+        mustChangePassword: false,
+        passwordChangedAt: new Date().toISOString(),
+        temporaryPasswordUsed: true,
+      });
+      setSuccess("Tu contraseña fue actualizada correctamente.");
+      onChanged();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "";
+      if (message.includes("requires-recent-login")) {
+        setError("Por seguridad, vuelve a iniciar sesión con tu contraseña temporal e intenta cambiarla nuevamente.");
+        onLogout();
+        return;
+      }
+      setError("No fue posible actualizar tu contraseña. Intenta nuevamente.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <section className="page narrow">
+      <div className="login-card">
+        <SectionTitle title="Crea tu nueva contraseña" subtitle="Por seguridad, cambia la contraseña temporal por una contraseña propia antes de continuar." />
+        <PasswordField label="Nueva contraseña" value={newPassword} onChange={setNewPassword} />
+        <PasswordField label="Confirmar nueva contraseña" value={confirmPassword} onChange={setConfirmPassword} />
+        {error && <p className="form-error">{error}</p>}
+        {success && <p className="save-status success">{success}</p>}
+        <button className="primary" onClick={submit} disabled={loading}>{loading ? "Actualizando..." : "Guardar nueva contraseña"}</button>
       </div>
     </section>
   );
@@ -822,7 +933,7 @@ function ResultScreen({ company, result, saveState, onPdf, onPortal }: { company
       <ResultHeader company={company} result={result} />
       {(saveState.loading || saveState.error || saveState.success) && (
         <div className={`save-status ${saveState.error ? "error" : saveState.success ? "success" : ""}`}>
-          {saveState.loading && "Guardando diagnóstico en Firestore..."}
+          {saveState.loading && "Guardando diagnóstico en el sistema..."}
           {saveState.error && saveState.error}
           {saveState.success && saveState.success}
         </div>
@@ -864,19 +975,14 @@ function CompanyPortal({ tab, setTab, company, result, loadingResult, resultErro
 }
 
 function AdminPortal(props: { tab: AdminTab; setTab: (tab: AdminTab) => void; stats: any; selectedCompanyId: string; setSelectedCompanyId: (id: string) => void; setSelectedAdminCompany: (company: AdminCompany | null) => void; setView: (view: View) => void; onPdf: () => void }) {
-  const [companyDraft, setCompanyDraft] = useState<AccessRequestRecord | null>(null);
   const tabs: AdminTab[] = ["panel", "empresas", "solicitudes", "diagnosticos", "estadisticas", "observaciones", "reportes", "configuracion"];
-  const useRequestForCompany = (request: AccessRequestRecord) => {
-    setCompanyDraft(request);
-    props.setTab("empresas");
-  };
   return (
     <section className="portal">
       <Sidebar title="Panel administrativo" items={tabs} active={props.tab} onSelect={props.setTab} />
       <div className="portal-content">
         {props.tab === "panel" && <AdminDashboard stats={props.stats} />}
-        {props.tab === "empresas" && <CompaniesTable companyDraft={companyDraft} clearCompanyDraft={() => setCompanyDraft(null)} setSelectedCompanyId={props.setSelectedCompanyId} setSelectedAdminCompany={props.setSelectedAdminCompany} setView={props.setView} onPdf={props.onPdf} />}
-        {props.tab === "solicitudes" && <AccessRequestsPanel onUseForCompany={useRequestForCompany} />}
+        {props.tab === "empresas" && <CompaniesTable setSelectedCompanyId={props.setSelectedCompanyId} setSelectedAdminCompany={props.setSelectedAdminCompany} setView={props.setView} onPdf={props.onPdf} />}
+        {props.tab === "solicitudes" && <AccessRequestsPanel />}
         {props.tab === "diagnosticos" && <DiagnosticsPanel />}
         {props.tab === "estadisticas" && <RegionalStats stats={props.stats} compact />}
         {props.tab === "observaciones" && <AllObservations />}
@@ -887,8 +993,10 @@ function AdminPortal(props: { tab: AdminTab; setTab: (tab: AdminTab) => void; st
   );
 }
 
-function AccessRequestsPanel({ onUseForCompany }: { onUseForCompany: (request: AccessRequestRecord) => void }) {
+function AccessRequestsPanel() {
   const [requests, setRequests] = useState<AccessRequestRecord[]>([]);
+  const [selectedRequest, setSelectedRequest] = useState<AccessRequestRecord | null>(null);
+  const [filter, setFilter] = useState<"pending" | "approved" | "rejected">("pending");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -908,51 +1016,217 @@ function AccessRequestsPanel({ onUseForCompany }: { onUseForCompany: (request: A
     loadRequests();
   }, []);
 
-  const markRequest = async (requestId: string, status: "approved" | "rejected") => {
+  const updateRequestLocally = (updated: AccessRequestRecord) => {
+    setRequests((current) => current.map((item) => item.id === updated.id ? updated : item));
+    setSelectedRequest(updated);
+  };
+
+  const rejectRequest = async (request: AccessRequestRecord) => {
     setMessage("");
     setError("");
+    const reason = window.prompt("Motivo de rechazo (opcional):") || "";
     try {
-      await updateAccessRequestStatus(requestId, status);
-      setRequests((current) => current.map((request) => request.id === requestId ? { ...request, status } : request));
-      setMessage(status === "approved" ? "Solicitud autorizada." : "Solicitud rechazada.");
+      const extraData = { rejectionReason: reason, reviewedAt: new Date().toISOString() };
+      await updateAccessRequestStatus(request.id, "rejected", extraData);
+      updateRequestLocally({ ...request, status: "rejected", ...extraData });
+      setMessage("Solicitud rechazada.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "No fue posible actualizar la solicitud.");
     }
   };
 
+  const createCompanyAndApprove = async (request: AccessRequestRecord) => {
+    setMessage("");
+    setError("");
+
+    if (!request.email) {
+      setError("No se puede aprobar la solicitud sin correo de acceso.");
+      return;
+    }
+
+    if (!request.companyName) {
+      setError("No se puede aprobar la solicitud sin nombre de empresa.");
+      return;
+    }
+
+    if (!request.phone && !request.contactName) {
+      setError("Captura al menos tel?fono o representante para aprobar la solicitud.");
+      return;
+    }
+
+    try {
+      const existingCompanies = await listCompanies();
+      const normalizedFolio = request.folio?.trim().toUpperCase();
+      const normalizedEmail = request.email.trim().toLowerCase();
+      const existingCompany = existingCompanies.find((company: any) => {
+        const folio = String(company.folio || company.id || "").trim().toUpperCase();
+        const email = String(company.email || "").trim().toLowerCase();
+        return Boolean((normalizedFolio && folio === normalizedFolio) || (normalizedEmail && email === normalizedEmail));
+      }) as Record<string, any> | undefined;
+
+      if (existingCompany) {
+        const confirmed = window.confirm("Ya existe una empresa con este folio o correo. ?Deseas actualizar sus datos con esta solicitud?");
+        if (!confirmed) return;
+      }
+
+      const companyId = String(existingCompany?.id || normalizedFolio || `SOL-${request.id.slice(0, 8).toUpperCase()}`);
+      const companyPayload = {
+        id: companyId,
+        folio: normalizedFolio || companyId,
+        name: request.companyName,
+        rfc: request.rfc || "",
+        representative: request.contactName || "",
+        email: request.email,
+        phone: request.phone || "",
+        sector: request.sector || "No especificado",
+        city: request.city || "Nuevo Laredo",
+        state: request.state || "Tamaulipas",
+        comments: getRequestComments(request),
+        role: "company",
+        status: "Activa",
+        accessStatus: "active",
+        followUpStatus: "Sin iniciar",
+        interestedInAdvisory: false,
+        mustChangePassword: true,
+      };
+
+      if (existingCompany) {
+        await updateCompany(companyId, companyPayload);
+      } else {
+        await createCompany(companyPayload);
+      }
+
+      const temporaryPassword = getSuggestedTemporaryPassword(request.folio);
+      const extraData = {
+        approvedAt: new Date().toISOString(),
+        reviewedAt: new Date().toISOString(),
+        linkedCompanyId: companyId,
+        suggestedTemporaryPassword: temporaryPassword,
+      };
+      await updateAccessRequestStatus(request.id, "approved", extraData);
+      updateRequestLocally({ ...request, status: "approved", ...extraData });
+      setMessage("Empresa creada y solicitud aprobada.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No fue posible crear la empresa y aprobar la solicitud.");
+    }
+  };
+
+  const filteredRequests = requests.filter((request) => (request.status || "pending") === filter);
+
+  if (selectedRequest) {
+    return (
+      <AccessRequestDetail
+        request={selectedRequest}
+        error={error}
+        message={message}
+        onBack={() => setSelectedRequest(null)}
+        onApprove={createCompanyAndApprove}
+        onReject={rejectRequest}
+      />
+    );
+  }
+
   return (
     <>
-      <SectionTitle title="Solicitudes de acceso" subtitle="Revisión administrativa de empresas que solicitan acceso al portal ICE." />
+      <SectionTitle title="Solicitudes de acceso" subtitle="Revisi?n administrativa de empresas que solicitan acceso al portal ICE." />
+      <div className="filter-tabs">
+        <button className={filter === "pending" ? "active" : ""} onClick={() => setFilter("pending")}>Pendientes</button>
+        <button className={filter === "approved" ? "active" : ""} onClick={() => setFilter("approved")}>Aprobadas</button>
+        <button className={filter === "rejected" ? "active" : ""} onClick={() => setFilter("rejected")}>Rechazadas</button>
+      </div>
       {loading && <div className="save-status">Cargando solicitudes...</div>}
       {error && <div className="save-status error">{error}</div>}
       {message && <div className="save-status success">{message}</div>}
-      {!loading && !requests.length && <div className="card prepared"><FileText size={32} /><h2>Sin solicitudes pendientes</h2><p>Las solicitudes enviadas desde la portada aparecerán en esta sección.</p></div>}
+      {!loading && !filteredRequests.length && <div className="card prepared"><FileText size={32} /><h2>Sin solicitudes en esta vista</h2><p>Las solicitudes se mostrar?n conforme a su estado de revisi?n.</p></div>}
       <div className="request-grid">
-        {requests.map((request) => (
+        {filteredRequests.map((request) => (
           <article className="request-card" key={request.id}>
             <div className="company-card-head">
               <span>{request.folio || "Sin folio"}</span>
-              <Badge tone={request.status === "approved" ? "verde" : request.status === "rejected" ? "rojo" : "amarillo"}>{request.status === "approved" ? "Autorizada" : request.status === "rejected" ? "Rechazada" : "Pendiente"}</Badge>
+              <Badge tone={request.status === "approved" ? "verde" : request.status === "rejected" ? "rojo" : "amarillo"}>{request.status === "approved" ? "Aprobada" : request.status === "rejected" ? "Rechazada" : "Pendiente"}</Badge>
             </div>
             <h3>{request.companyName}</h3>
             <div className="mobile-detail-grid">
-              <p><span>Contacto</span><strong>{request.contactName}</strong></p>
-              <p><span>Correo</span><strong>{request.email}</strong></p>
-              <p><span>Teléfono</span><strong>{request.phone || "No capturado"}</strong></p>
+              <p><span>Contacto</span><strong>{request.contactName || "No capturado"}</strong></p>
+              <p><span>Correo</span><strong>{request.email || "No capturado"}</strong></p>
+              <p><span>Tel?fono</span><strong>{request.phone || "No capturado"}</strong></p>
               <p><span>Sector</span><strong>{request.sector || "No capturado"}</strong></p>
-              <p><span>Ciudad</span><strong>{request.city || "Nuevo Laredo"}</strong></p>
-              <p><span>Estado</span><strong>{request.state || "Tamaulipas"}</strong></p>
             </div>
-            {request.message && <p className="note"><strong>Observación</strong><span>{request.message}</span></p>}
+            {getRequestComments(request) && <p className="note"><strong>Observaci?n</strong><span>{getRequestComments(request)}</span></p>}
             <div className="actions-row">
-              <button className="primary" onClick={() => onUseForCompany(request)}>Usar datos para alta</button>
-              <button className="secondary" onClick={() => markRequest(request.id, "approved")}>Autorizar</button>
-              <button className="secondary" onClick={() => markRequest(request.id, "rejected")}>Rechazar</button>
+              <button className="primary" onClick={() => setSelectedRequest(request)}>Revisar solicitud</button>
             </div>
           </article>
         ))}
       </div>
     </>
+  );
+}
+
+function AccessRequestDetail({ request, error, message, onBack, onApprove, onReject }: { request: AccessRequestRecord; error: string; message: string; onBack: () => void; onApprove: (request: AccessRequestRecord) => void; onReject: (request: AccessRequestRecord) => void }) {
+  const status = request.status || "pending";
+  return (
+    <section className="request-detail">
+      <button className="back-link" onClick={onBack}>? Volver a solicitudes</button>
+      <SectionTitle title="Revisi?n de solicitud" subtitle="Detalle operativo para aprobar o rechazar el acceso de la empresa." />
+      {error && <div className="save-status error">{error}</div>}
+      {message && <div className="save-status success">{message}</div>}
+      <div className="card request-detail-card">
+        <div className="company-card-head">
+          <span>{request.folio || "Sin folio"}</span>
+          <Badge tone={status === "approved" ? "verde" : status === "rejected" ? "rojo" : "amarillo"}>{status === "approved" ? "Aprobada" : status === "rejected" ? "Rechazada" : "Pendiente"}</Badge>
+        </div>
+        <h3>{request.companyName}</h3>
+        <div className="mobile-detail-grid">
+          <p><span>Empresa</span><strong>{request.companyName || "No capturado"}</strong></p>
+          <p><span>Folio</span><strong>{request.folio || "No capturado"}</strong></p>
+          <p><span>RFC</span><strong>{request.rfc || "No capturado"}</strong></p>
+          <p><span>Representante</span><strong>{request.contactName || "No capturado"}</strong></p>
+          <p><span>Correo</span><strong>{request.email || "No capturado"}</strong></p>
+          <p><span>Tel?fono</span><strong>{request.phone || "No capturado"}</strong></p>
+          <p><span>Sector</span><strong>{request.sector || "No capturado"}</strong></p>
+          <p><span>Ciudad</span><strong>{request.city || "Nuevo Laredo"}</strong></p>
+          <p><span>Estado</span><strong>{request.state || "Tamaulipas"}</strong></p>
+        </div>
+        {getRequestComments(request) && <p className="note"><strong>Comentarios</strong><span>{getRequestComments(request)}</span></p>}
+        {status === "pending" && (
+          <div className="actions-row">
+            <button className="primary" onClick={() => onApprove(request)}>Crear empresa y aprobar</button>
+            <button className="secondary" onClick={() => onReject(request)}>Rechazar solicitud</button>
+          </div>
+        )}
+        {status === "approved" && <AccessMessageBlock request={request} />}
+        {status === "rejected" && (
+          <div className="notice"><ShieldCheck size={18} /> Solicitud rechazada{request.rejectionReason ? `: ${request.rejectionReason}` : "."} Fecha de revisión: {formatRequestDate(request.reviewedAt)}</div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function AccessMessageBlock({ request }: { request: AccessRequestRecord }) {
+  const [copied, setCopied] = useState(false);
+  const temporaryPassword = request.suggestedTemporaryPassword || getSuggestedTemporaryPassword(request.folio);
+  const message = getAccessMessage({ ...request, suggestedTemporaryPassword: temporaryPassword });
+  const phone = normalizePhoneForWhatsapp(request.phone);
+  const whatsappUrl = phone ? `https://wa.me/52${phone}?text=${encodeURIComponent(message)}` : "";
+  const copyMessage = async () => {
+    await navigator.clipboard.writeText(message);
+    setCopied(true);
+  };
+
+  return (
+    <div className="access-message">
+      <h4>Datos de acceso sugeridos</h4>
+      <div className="access-credential"><span>Correo de acceso</span><strong>{request.email}</strong></div>
+      <div className="access-credential"><span>Contraseña temporal sugerida</span><strong>{temporaryPassword}</strong></div>
+      <pre>{message}</pre>
+      <div className="notice"><ShieldCheck size={18} /> Antes de enviar el mensaje, asegúrate de que el acceso de la empresa haya sido creado y activado.</div>
+      <div className="actions-row">
+        <button className="secondary" onClick={copyMessage}>{copied ? "Mensaje copiado" : "Copiar mensaje"}</button>
+        {whatsappUrl && <a className="primary" href={whatsappUrl} target="_blank" rel="noreferrer">Enviar por WhatsApp</a>}
+      </div>
+    </div>
   );
 }
 
@@ -1019,7 +1293,7 @@ function EmptyDiagnosticState({ company, onStart, loading, error }: { company: C
   );
 }
 
-function CompaniesTable({ companyDraft, clearCompanyDraft, setSelectedCompanyId, setSelectedAdminCompany, setView, onPdf }: { companyDraft: AccessRequestRecord | null; clearCompanyDraft: () => void; setSelectedCompanyId: (id: string) => void; setSelectedAdminCompany: (company: AdminCompany | null) => void; setView: (view: View) => void; onPdf: () => void }) {
+function CompaniesTable({ setSelectedCompanyId, setSelectedAdminCompany, setView, onPdf }: { setSelectedCompanyId: (id: string) => void; setSelectedAdminCompany: (company: AdminCompany | null) => void; setView: (view: View) => void; onPdf: () => void }) {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [firestoreCompanies, setFirestoreCompanies] = useState<AdminCompany[]>([]);
   const [loadingCompanies, setLoadingCompanies] = useState(false);
@@ -1050,7 +1324,7 @@ function CompaniesTable({ companyDraft, clearCompanyDraft, setSelectedCompanyId,
         setCompaniesError("");
       })
       .catch(() => {
-        if (mounted) setCompaniesError("No fue posible cargar empresas desde Firestore. Se muestra el listado institucional local.");
+        if (mounted) setCompaniesError("No fue posible cargar empresas desde el sistema. Se muestra el listado institucional local.");
       })
       .finally(() => {
         if (mounted) setLoadingCompanies(false);
@@ -1061,23 +1335,6 @@ function CompaniesTable({ companyDraft, clearCompanyDraft, setSelectedCompanyId,
     };
   }, []);
 
-  useEffect(() => {
-    if (!companyDraft) return;
-    setNewCompany({
-      folio: companyDraft.folio || "",
-      name: companyDraft.companyName || "",
-      sector: companyDraft.sector || "Administración y desarrollo empresarial",
-      representative: companyDraft.contactName || "",
-      city: companyDraft.city || "Nuevo Laredo",
-      state: companyDraft.state || "Tamaulipas",
-      email: companyDraft.email || "",
-      phone: companyDraft.phone || "",
-      followUpStatus: "Sin iniciar",
-    });
-    setShowNewCompany(true);
-    setCompanySaveMessage("Datos de solicitud cargados en el formulario de alta.");
-    clearCompanyDraft();
-  }, [companyDraft, clearCompanyDraft]);
 
   const displayCompanies: AdminCompany[] = [
     ...firestoreCompanies,
@@ -1154,7 +1411,7 @@ function CompaniesTable({ companyDraft, clearCompanyDraft, setSelectedCompanyId,
       };
 
       setFirestoreCompanies((current) => [created, ...current.filter((company) => company.id !== folio)]);
-      setCompanySaveMessage("Empresa registrada correctamente en Firestore.");
+      setCompanySaveMessage("Empresa registrada correctamente en el sistema.");
       setShowNewCompany(false);
       setNewCompany({
         folio: "",

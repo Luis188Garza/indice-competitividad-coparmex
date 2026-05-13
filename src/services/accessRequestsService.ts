@@ -7,7 +7,9 @@ export type AccessRequestData = {
   contactName: string;
   email: string;
   phone?: string;
+  rfc?: string;
   message?: string;
+  comments?: string;
   sector?: string;
   city?: string;
   state?: string;
@@ -16,7 +18,11 @@ export type AccessRequestData = {
 export type AccessRequestRecord = AccessRequestData & {
   id: string;
   status?: "pending" | "approved" | "rejected";
+  approvedAt?: unknown;
   reviewedAt?: unknown;
+  suggestedTemporaryPassword?: string;
+  linkedCompanyId?: string;
+  rejectionReason?: string;
 };
 
 export async function saveAccessRequest(data: AccessRequestData) {
@@ -37,10 +43,11 @@ export async function listAccessRequests() {
   return snapshot.docs.map((item) => ({ ...item.data(), id: item.id })) as AccessRequestRecord[];
 }
 
-export async function updateAccessRequestStatus(requestId: string, status: "approved" | "rejected") {
+export async function updateAccessRequestStatus(requestId: string, status: "approved" | "rejected", extraData: Record<string, unknown> = {}) {
   const firestore = requireFirestore();
   await updateDoc(doc(firestore, "accessRequests", requestId), {
     status,
+    ...extraData,
     reviewedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });

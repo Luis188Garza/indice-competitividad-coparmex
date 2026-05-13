@@ -1,4 +1,4 @@
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from "firebase/auth";
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut, updatePassword, type User } from "firebase/auth";
 import { auth } from "../firebase/firebaseConfig";
 
 export function loginWithEmail(email: string, password: string) {
@@ -15,4 +15,12 @@ export function getCurrentUser() {
 
 export function listenAuthState(callback: (user: User | null) => void) {
   return onAuthStateChanged(auth, callback);
+}
+
+export async function changeCurrentUserPassword(newPassword: string) {
+  if (!auth.currentUser) {
+    throw new Error("No hay una sesión activa.");
+  }
+
+  await updatePassword(auth.currentUser, newPassword);
 }
