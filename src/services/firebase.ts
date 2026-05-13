@@ -1,27 +1,7 @@
-import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { db } from "../firebase/firebaseConfig";
 
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-};
-
-export function hasFirebaseConfig() {
-  return Object.values(firebaseConfig).every(Boolean);
-}
-
-const app = hasFirebaseConfig() ? initializeApp(firebaseConfig) : null;
-
-export const db = app ? getFirestore(app) : null;
+export { app, auth, db, initAnalytics } from "../firebase/firebaseConfig";
 
 export function requireFirestore() {
-  if (!db) {
-    throw new Error("Firebase no está configurado. Agrega las variables VITE_FIREBASE_* en el entorno.");
-  }
-
   return db;
 }

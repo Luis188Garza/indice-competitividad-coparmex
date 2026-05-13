@@ -1,4 +1,4 @@
-import { addDoc, collection, doc, getDoc, getDocs, orderBy, query, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, getDocs, orderBy, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 import { requireFirestore } from "./firebase";
 
 export type CompanyFirestoreData = {
@@ -12,6 +12,8 @@ export type CompanyFirestoreData = {
   phone?: string;
   folio?: string;
   status?: string;
+  authUid?: string;
+  accessStatus?: string;
   [key: string]: unknown;
 };
 
@@ -43,11 +45,18 @@ export async function updateCompany(companyId: string, data: Partial<CompanyFire
 export async function getCompanyById(companyId: string) {
   const firestore = requireFirestore();
   const snapshot = await getDoc(doc(firestore, "companies", companyId));
-  return snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null;
+  return snapshot.exists() ? { ...snapshot.data(), id: snapshot.id } : null;
+}
+
+export async function getCompanyByAuthUid(authUid: string) {
+  const firestore = requireFirestore();
+  const snapshot = await getDocs(query(collection(firestore, "companies"), where("authUid", "==", authUid)));
+  const company = snapshot.docs[0];
+  return company ? { ...company.data(), id: company.id } : null;
 }
 
 export async function listCompanies() {
   const firestore = requireFirestore();
   const snapshot = await getDocs(query(collection(firestore, "companies"), orderBy("createdAt", "desc")));
-  return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+  return snapshot.docs.map((item) => ({ ...item.data(), id: item.id }));
 }
