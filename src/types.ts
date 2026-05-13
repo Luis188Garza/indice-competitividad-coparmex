@@ -55,6 +55,11 @@ export interface MaturityLevel {
   message: string;
 }
 
+export interface SelectedDiagnosticOption {
+  label: string;
+  points: number;
+}
+
 export interface DiagnosticResult {
   totalScore: number;
   maxScore: number;
@@ -70,7 +75,7 @@ export interface Diagnostic {
   id: string;
   companyId: string;
   status: "Completo" | "Pendiente";
-  answers: Record<string, number>;
+  answers: Record<string, number | SelectedDiagnosticOption>;
   result?: DiagnosticResult;
 }
 

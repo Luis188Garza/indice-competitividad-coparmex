@@ -15,16 +15,21 @@ import {
   UserRoundCheck,
   X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
-import { modules, questions } from "./data/diagnostic";
+import { useEffect, useMemo, useState } from "react";
+import { diagnosticICE } from "./data/diagnosticICE";
 import { activityLog, companies, diagnostics, documents, observations, roles } from "./data/mockData";
-import { CompanyProfile, DiagnosticResult } from "./types";
+import { CompanyProfile, DiagnosticResult, SelectedDiagnosticOption } from "./types";
+import { saveDiagnosticResponse } from "./services/diagnosticResponsesService";
 import { calculateDiagnostic, trafficLabel } from "./utils/scoring";
 
 type View = "landing" | "about" | "login" | "loginEmpresa" | "loginAdmin" | "register" | "questionnaire" | "result" | "company" | "admin" | "stats" | "detail";
 type CompanyTab = "dashboard" | "autodiagnostico" | "resultado" | "recomendaciones" | "observaciones" | "perfil" | "documentacion";
 type AdminTab = "panel" | "empresas" | "diagnosticos" | "estadisticas" | "observaciones" | "reportes" | "configuracion";
 type Session = { isAuthenticated: boolean; role: "empresa" | "admin" | null; companyId?: string; adminName?: string };
+type AnswerState = Record<string, SelectedDiagnosticOption>;
+
+const diagnosticModules = diagnosticICE.modules.slice().sort((a, b) => a.order - b.order);
+const diagnosticQuestions = diagnosticModules.flatMap((module) => module.questions.slice().sort((a, b) => a.order - b.order));
 
 const initialCompany: CompanyProfile = {
   id: "COP-NVO",
@@ -53,8 +58,13 @@ function App() {
   const [session, setSession] = useState<Session>({ isAuthenticated: false, role: null });
   const [profile, setProfile] = useState<CompanyProfile>(initialCompany);
   const [currentModule, setCurrentModule] = useState(0);
-  const [answers, setAnswers] = useState<Record<string, number>>({});
+  const [answers, setAnswers] = useState<AnswerState>(() => {
+    if (typeof window === "undefined") return {};
+    const saved = window.localStorage.getItem("ice-diagnostic-answers");
+    return saved ? JSON.parse(saved) as AnswerState : {};
+  });
   const [result, setResult] = useState<DiagnosticResult | null>(null);
+  const [saveState, setSaveState] = useState<{ loading: boolean; error: string; success: string }>({ loading: false, error: "", success: "" });
 
   const completedDiagnostics = diagnostics.filter((diagnostic) => diagnostic.status === "Completo" && diagnostic.result);
   const selectedCompany = companies.find((company) => company.id === selectedCompanyId) ?? companies[0];
@@ -64,9 +74,13 @@ function App() {
   const activeCompany = sessionCompany ?? (profile.name ? profile : companies[0]);
   const activeDiagnostic = diagnostics.find((diagnostic) => diagnostic.companyId === activeCompany.id && diagnostic.result);
   const activeResult = result ?? activeDiagnostic?.result ?? showcaseDiagnostic;
-  const currentQuestions = questions.filter((question) => question.moduleId === modules[currentModule].id);
-  const answeredQuestions = questions.filter((question) => answers[question.id] !== undefined).length;
-  const progress = Math.round((answeredQuestions / questions.length) * 100);
+  const currentQuestions = diagnosticModules[currentModule].questions.slice().sort((a, b) => a.order - b.order);
+  const answeredQuestions = diagnosticQuestions.filter((question) => answers[question.id] !== undefined).length;
+  const progress = Math.round((answeredQuestions / diagnosticQuestions.length) * 100);
+
+  useEffect(() => {
+    window.localStorage.setItem("ice-diagnostic-answers", JSON.stringify(answers));
+  }, [answers]);
 
   const stats = useMemo(() => {
     const average = Math.round(completedDiagnostics.reduce((sum, diagnostic) => sum + diagnostic.result!.percentage, 0) / completedDiagnostics.length);
@@ -74,7 +88,7 @@ function App() {
     const solid = completedDiagnostics.filter((diagnostic) => diagnostic.result!.percentage >= 70).length;
     const advisory = companies.filter((company) => company.interestedInAdvisory).length;
     const pending = diagnostics.filter((diagnostic) => diagnostic.status === "Pendiente").length;
-    const moduleAverages = modules.map((module) => {
+    const moduleAverages = diagnosticModules.map((module) => {
       const values = completedDiagnostics.map((diagnostic) => diagnostic.result!.moduleScores.find((score) => score.moduleId === module.id)!.percentage);
       return { title: module.title, value: Math.round(values.reduce((sum, value) => sum + value, 0) / values.length) };
     });
@@ -90,10 +104,33 @@ function App() {
     return { average, highRisk, solid, advisory, pending, moduleAverages, sectors };
   }, [completedDiagnostics]);
 
-  const completeDiagnostic = () => {
+  const completeDiagnostic = async () => {
     const nextResult = calculateDiagnostic(answers);
     setResult(nextResult);
     setView("result");
+    setSaveState({ loading: true, error: "", success: "" });
+
+    try {
+      const responseId = await saveDiagnosticResponse({
+        companyId: activeCompany.id || session.companyId || "TEMP-COMPANY",
+        diagnosticId: diagnosticICE.id,
+        diagnosticTitle: diagnosticICE.title,
+        answers,
+        moduleScores: nextResult.moduleScores,
+        totalScore: nextResult.totalScore,
+        maxScore: nextResult.maxScore,
+        percentage: nextResult.percentage,
+        level: nextResult.maturity.level,
+        maturityTitle: nextResult.maturity.title,
+        semaphore: nextResult.maturity.trafficLight,
+        interpretation: nextResult.maturity.message,
+        completedAt: nextResult.completedAt,
+      });
+      setSaveState({ loading: false, error: "", success: `Diagnóstico guardado correctamente. Folio de respuesta: ${responseId}` });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No fue posible guardar el diagnóstico en Firestore.";
+      setSaveState({ loading: false, error: message, success: "" });
+    }
   };
 
   const simulatePdf = () => {
@@ -167,7 +204,7 @@ function App() {
       )}
 
       <main>
-        {view === "landing" && <Landing onStart={() => setView("register")} onPortal={() => setView("login")} />}
+        {view === "landing" && <Landing onPortal={() => setView("login")} />}
         {view === "about" && <AboutIndex />}
         {view === "login" && <AccessHub onCompany={() => setView("loginEmpresa")} onAdmin={() => setView("loginAdmin")} />}
         {view === "loginEmpresa" && <CompanyLogin onLogin={loginCompany} />}
@@ -185,7 +222,7 @@ function App() {
           />
         )}
         {view === "result" && result && (
-          <ResultScreen company={activeCompany} result={result} onPdf={simulatePdf} onPortal={() => { setSession({ isAuthenticated: true, role: "empresa", companyId: session.companyId }); setView("company"); }} />
+          <ResultScreen company={activeCompany} result={result} saveState={saveState} onPdf={simulatePdf} onPortal={() => { setSession({ isAuthenticated: true, role: "empresa", companyId: session.companyId }); setView("company"); }} />
         )}
         {view === "company" && session.role === "empresa" && (
           <CompanyPortal
@@ -299,7 +336,7 @@ function HeaderNav({ session, activeCompany, onNavigate, onLogout }: { session: 
   );
 }
 
-function Landing({ onStart, onPortal }: { onStart: () => void; onPortal: () => void }) {
+function Landing({ onPortal }: { onPortal: () => void }) {
   return (
     <section className="hero">
       <div className="hero-copy">
@@ -307,8 +344,8 @@ function Landing({ onStart, onPortal }: { onStart: () => void; onPortal: () => v
         <h1>Índice de Competitividad Empresarial</h1>
         <p>Diagnóstico de madurez corporativa para empresas afiliadas a COPARMEX Nuevo Laredo.</p>
         <div className="hero-actions">
-          <button className="primary" onClick={onStart}>Iniciar diagnóstico</button>
-          <button className="secondary" onClick={onPortal}>Iniciar sesión</button>
+          <button className="primary" onClick={onPortal}>Iniciar sesión</button>
+          <button className="secondary" onClick={onPortal}>Acceso privado</button>
         </div>
       </div>
       <div className="hero-panel">
@@ -416,18 +453,20 @@ function Register({ profile, setProfile, onNext }: { profile: CompanyProfile; se
 function Questionnaire(props: {
   currentModule: number;
   setCurrentModule: (index: number) => void;
-  answers: Record<string, number>;
-  setAnswers: (answers: Record<string, number>) => void;
-  currentQuestions: typeof questions;
+  answers: AnswerState;
+  setAnswers: (answers: AnswerState) => void;
+  currentQuestions: typeof diagnosticQuestions;
   progress: number;
   onComplete: () => void;
 }) {
-  const module = modules[props.currentModule];
+  const module = diagnosticModules[props.currentModule];
   const canAdvance = props.currentQuestions.every((question) => props.answers[question.id] !== undefined);
+  const moduleScore = props.currentQuestions.reduce((sum, question) => sum + (props.answers[question.id]?.points ?? 0), 0);
+  const modulePercentage = Math.round((moduleScore / module.maxPoints) * 100);
   return (
     <section className="page">
       <div className="split-title">
-        <SectionTitle title={module.title} subtitle={`${module.description} Sección ${props.currentModule + 1} de ${modules.length}.`} />
+        <SectionTitle title={module.title} subtitle={`${diagnosticICE.subtitle}. Módulo ${props.currentModule + 1} de ${diagnosticModules.length}. Puntaje del módulo: ${moduleScore}/${module.maxPoints} (${modulePercentage}%).`} />
         <ProgressRing value={props.progress} label="Avance general" />
       </div>
       <div className="progress"><span style={{ width: `${props.progress}%` }} /></div>
@@ -440,8 +479,8 @@ function Questionnaire(props: {
               {question.options.map((option) => (
                 <button
                   key={option.label}
-                  className={props.answers[question.id] === option.value ? "active" : ""}
-                  onClick={() => props.setAnswers({ ...props.answers, [question.id]: option.value })}
+                  className={props.answers[question.id]?.label === option.label ? "active" : ""}
+                  onClick={() => props.setAnswers({ ...props.answers, [question.id]: { label: option.label, points: option.points } })}
                 >
                   {option.label}
                 </button>
@@ -452,7 +491,7 @@ function Questionnaire(props: {
       </div>
       <div className="actions-row">
         <button className="secondary" disabled={props.currentModule === 0} onClick={() => props.setCurrentModule(props.currentModule - 1)}>Anterior</button>
-        {props.currentModule < modules.length - 1 ? (
+        {props.currentModule < diagnosticModules.length - 1 ? (
           <button className="primary" disabled={!canAdvance} onClick={() => props.setCurrentModule(props.currentModule + 1)}>Siguiente sección</button>
         ) : (
           <button className="primary" disabled={!canAdvance} onClick={props.onComplete}>Generar resultado</button>
@@ -462,10 +501,17 @@ function Questionnaire(props: {
   );
 }
 
-function ResultScreen({ company, result, onPdf, onPortal }: { company: CompanyProfile; result: DiagnosticResult; onPdf: () => void; onPortal: () => void }) {
+function ResultScreen({ company, result, saveState, onPdf, onPortal }: { company: CompanyProfile; result: DiagnosticResult; saveState: { loading: boolean; error: string; success: string }; onPdf: () => void; onPortal: () => void }) {
   return (
     <section className="page printable">
       <ResultHeader company={company} result={result} />
+      {(saveState.loading || saveState.error || saveState.success) && (
+        <div className={`save-status ${saveState.error ? "error" : saveState.success ? "success" : ""}`}>
+          {saveState.loading && "Guardando diagnóstico en Firestore..."}
+          {saveState.error && saveState.error}
+          {saveState.success && saveState.success}
+        </div>
+      )}
       <ModuleBars scores={result.moduleScores} />
       <TwoColumns
         left={<InsightList title="Principales hallazgos" items={result.findings} />}
@@ -492,7 +538,7 @@ function CompanyPortal({ tab, setTab, company, result, onStart, onPdf }: { tab: 
       <div className="portal-content">
         {tab === "dashboard" && <CompanyDashboard company={company} result={result} onStart={onStart} />}
         {tab === "autodiagnostico" && <PrepPanel onStart={onStart} />}
-        {tab === "resultado" && <ResultScreen company={company} result={result} onPdf={onPdf} onPortal={() => setTab("dashboard")} />}
+        {tab === "resultado" && <ResultScreen company={company} result={result} saveState={{ loading: false, error: "", success: "" }} onPdf={onPdf} onPortal={() => setTab("dashboard")} />}
         {tab === "recomendaciones" && <InsightList title="Plan de acción recomendado" items={result.recommendations} />}
         {tab === "observaciones" && <ObservationList companyId={company.id} />}
         {tab === "perfil" && <ProfileCard company={company} result={result} />}
@@ -781,7 +827,7 @@ function completedLevel(level: number) {
 }
 
 function PrepPanel({ onStart }: { onStart: () => void }) {
-  const previewQuestions = questions.filter((question) => question.moduleId === modules[0].id).slice(0, 2);
+  const previewQuestions = diagnosticModules[0].questions.slice().sort((a, b) => a.order - b.order).slice(0, 2);
   return (
     <div className="diagnostic-preview">
       <div className="card prepared">
@@ -789,7 +835,7 @@ function PrepPanel({ onStart }: { onStart: () => void }) {
         <h2>Autodiagnóstico por módulos</h2>
         <p>El cuestionario evalúa constitución, gobierno corporativo, libros, representación legal, contratos, cumplimiento y continuidad empresarial.</p>
         <div className="progress"><span style={{ width: "14%" }} /></div>
-        <div className="module-status"><strong>Módulo 1 de 7</strong><span>{modules[0].title}</span></div>
+        <div className="module-status"><strong>Módulo 1 de {diagnosticModules.length}</strong><span>{diagnosticModules[0].title}</span></div>
       </div>
       <div className="question-list preview-questions">
         {previewQuestions.map((question, index) => (

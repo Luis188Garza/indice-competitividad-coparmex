@@ -255,6 +255,25 @@ main { min-height: calc(100vh - 74px); }
   background: var(--blue-soft);
   color: var(--navy);
 }
+.save-status {
+  margin: 18px 0;
+  padding: 13px 14px;
+  border: 1px solid #c8d9ee;
+  border-radius: 8px;
+  background: var(--blue-soft);
+  color: var(--navy);
+  font-weight: 800;
+}
+.save-status.success {
+  border-color: #b7dfca;
+  background: #e6f4ed;
+  color: var(--green);
+}
+.save-status.error {
+  border-color: #fecaca;
+  background: #fff1f2;
+  color: var(--red);
+}
 .access-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
