@@ -339,6 +339,30 @@ main { min-height: calc(100vh - 74px); }
 }
 .request-card h3 { margin: 0; color: var(--navy); }
 .request-card .actions-row { margin-top: 4px; }
+.approved-access-summary {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #c8d9ee;
+  border-radius: 8px;
+  background: #fbfdff;
+}
+.approved-access-summary p {
+  display: grid;
+  grid-template-columns: minmax(130px, 190px) minmax(0, 1fr);
+  gap: 10px;
+  margin: 0;
+}
+.approved-access-summary span,
+.approved-access-summary small {
+  color: var(--muted);
+  font-weight: 700;
+}
+.approved-access-summary strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--navy);
+}
 .filter-tabs {
   display: inline-flex;
   flex-wrap: wrap;

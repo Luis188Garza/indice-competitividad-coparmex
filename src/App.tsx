@@ -119,6 +119,13 @@ function formatRequestDate(value: unknown) {
   return millis ? formatDate(new Date(millis).toISOString()) : "No disponible";
 }
 
+function getFriendlyErrorMessage(error: unknown, fallback: string) {
+  const raw = error instanceof Error ? error.message : "";
+  const technicalMarkers = ["Firebase", "Firestore", "auth/", "UID", "collection", "document"];
+  if (!raw || technicalMarkers.some((marker) => raw.includes(marker))) return fallback;
+  return raw;
+}
+
 function mapDiagnosticResponse(item: Record<string, any>): DiagnosticResult {
   const calculated = item.answers ? calculateDiagnostic(item.answers as AnswerState) : null;
   return {
@@ -172,13 +179,13 @@ function App() {
   const skipNextAnswerSave = useRef(false);
 
   const completedDiagnostics = diagnostics.filter((diagnostic) => diagnostic.status === "Completo" && diagnostic.result);
-  const selectedCompany = selectedAdminCompany?.id === selectedCompanyId ? selectedAdminCompany : companies.find((company) => company.id === selectedCompanyId) ?? companies[0];
+  const selectedCompany = selectedAdminCompany?.id === selectedCompanyId ? selectedAdminCompany : (companies.find((company) => company.id === selectedCompanyId) ?? companies[0]);
   const selectedDiagnostic = diagnostics.find((diagnostic) => diagnostic.companyId === selectedCompany.id && diagnostic.result);
   const showcaseDiagnostic = selectedDiagnostic?.result ?? completedDiagnostics[0].result!;
   const sessionCompany = authenticatedCompany ?? companies.find((company) => company.id === session.companyId);
   const activeCompany = sessionCompany ?? (profile.name ? profile : companies[0]);
   const activeDiagnostic = diagnostics.find((diagnostic) => diagnostic.companyId === activeCompany.id && diagnostic.result);
-  const activeResult = result ?? latestCompanyResult ?? (authenticatedCompany ? null : activeDiagnostic?.result ?? showcaseDiagnostic);
+  const activeResult = result ?? latestCompanyResult ?? (authenticatedCompany ? null : (activeDiagnostic?.result ?? showcaseDiagnostic));
   const activeCompanyId = activeCompany.id;
   const requiresPasswordChange = session.role === "empresa" && Boolean(authenticatedCompany?.mustChangePassword);
   const currentQuestions = diagnosticModules[currentModule].questions.slice().sort((a, b) => a.order - b.order);
@@ -224,7 +231,7 @@ function App() {
       .catch((error) => {
         if (!mounted) return;
         setLatestCompanyResult(null);
-        setLatestResultError(error instanceof Error ? error.message : "No fue posible consultar diagnósticos guardados.");
+        setLatestResultError(getFriendlyErrorMessage(error, "No fue posible consultar diagnósticos guardados."));
       })
       .finally(() => {
         if (mounted) setLatestResultLoading(false);
@@ -263,7 +270,7 @@ function App() {
         setView((current) => ["landing", "login", "loginEmpresa", "requestAccess"].includes(current) ? "company" : current);
         window.localStorage.setItem("ice-current-company", JSON.stringify(company));
       } catch {
-        // El login muestra los errores operativos; el listener solo intenta restaurar sesi?n.
+        // El login muestra los errores operativos; el listener solo intenta restaurar sesión.
       } finally {
         setAuthReady(true);
       }
@@ -348,7 +355,7 @@ function App() {
       setLatestCompanyResult(nextResult);
       setSaveState({ loading: false, error: "", success: `Diagnóstico guardado correctamente. Folio de respuesta: ${responseId}` });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "No fue posible guardar el diagnóstico en el sistema.";
+      const message = getFriendlyErrorMessage(error, "No fue posible guardar el diagnóstico en el sistema.");
       setSaveState({ loading: false, error: message, success: "" });
     }
   };
@@ -706,7 +713,7 @@ function AccessRequestScreen({ onBack }: { onBack: () => void }) {
       setSuccess(`Solicitud enviada correctamente. Folio de solicitud: ${requestId}`);
       setForm({ folio: "", companyName: "", contactName: "", email: "", phone: "", rfc: "", sector: "Administración y desarrollo empresarial", city: "Nuevo Laredo", state: "Tamaulipas", comments: "" });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No fue posible enviar la solicitud de acceso.");
+      setError(getFriendlyErrorMessage(err, "No fue posible enviar la solicitud de acceso."));
     } finally {
       setLoading(false);
     }
@@ -820,7 +827,7 @@ function CompanyLogin({ onLogin }: { onLogin: (email: string, password: string) 
       await onLogin(email, password);
       setSuccess("Acceso validado. Cargando portal empresa...");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No fue posible iniciar sesión.");
+      setError(getFriendlyErrorMessage(err, "Correo o contraseña incorrectos."));
     } finally {
       setLoading(false);
     }
@@ -1008,7 +1015,7 @@ function AccessRequestsPanel() {
         setRequests(items);
         setError("");
       })
-      .catch((err) => setError(err instanceof Error ? err.message : "No fue posible cargar solicitudes."))
+      .catch((err) => setError(getFriendlyErrorMessage(err, "No fue posible cargar solicitudes.")))
       .finally(() => setLoading(false));
   };
 
@@ -1031,7 +1038,7 @@ function AccessRequestsPanel() {
       updateRequestLocally({ ...request, status: "rejected", ...extraData });
       setMessage("Solicitud rechazada.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No fue posible actualizar la solicitud.");
+      setError(getFriendlyErrorMessage(err, "No fue posible actualizar la solicitud."));
     }
   };
 
@@ -1050,7 +1057,7 @@ function AccessRequestsPanel() {
     }
 
     if (!request.phone && !request.contactName) {
-      setError("Captura al menos tel?fono o representante para aprobar la solicitud.");
+      setError("Captura al menos teléfono o representante para aprobar la solicitud.");
       return;
     }
 
@@ -1105,9 +1112,9 @@ function AccessRequestsPanel() {
       };
       await updateAccessRequestStatus(request.id, "approved", extraData);
       updateRequestLocally({ ...request, status: "approved", ...extraData });
-      setMessage("Empresa creada y solicitud aprobada.");
+      setMessage("Empresa creada y solicitud aprobada. Crea la cuenta de acceso antes de enviar el mensaje.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No fue posible crear la empresa y aprobar la solicitud.");
+      setError(getFriendlyErrorMessage(err, "No fue posible crear la empresa y aprobar la solicitud."));
     }
   };
 
@@ -1128,7 +1135,7 @@ function AccessRequestsPanel() {
 
   return (
     <>
-      <SectionTitle title="Solicitudes de acceso" subtitle="Revisi?n administrativa de empresas que solicitan acceso al portal ICE." />
+      <SectionTitle title="Solicitudes de acceso" subtitle="Revisión administrativa de empresas que solicitan acceso al portal ICE." />
       <div className="filter-tabs">
         <button className={filter === "pending" ? "active" : ""} onClick={() => setFilter("pending")}>Pendientes</button>
         <button className={filter === "approved" ? "active" : ""} onClick={() => setFilter("approved")}>Aprobadas</button>
@@ -1137,7 +1144,7 @@ function AccessRequestsPanel() {
       {loading && <div className="save-status">Cargando solicitudes...</div>}
       {error && <div className="save-status error">{error}</div>}
       {message && <div className="save-status success">{message}</div>}
-      {!loading && !filteredRequests.length && <div className="card prepared"><FileText size={32} /><h2>Sin solicitudes en esta vista</h2><p>Las solicitudes se mostrar?n conforme a su estado de revisi?n.</p></div>}
+      {!loading && !filteredRequests.length && <div className="card prepared"><FileText size={32} /><h2>Sin solicitudes en esta vista</h2><p>Las solicitudes se mostrarán conforme a su estado de revisión.</p></div>}
       <div className="request-grid">
         {filteredRequests.map((request) => (
           <article className="request-card" key={request.id}>
@@ -1149,10 +1156,17 @@ function AccessRequestsPanel() {
             <div className="mobile-detail-grid">
               <p><span>Contacto</span><strong>{request.contactName || "No capturado"}</strong></p>
               <p><span>Correo</span><strong>{request.email || "No capturado"}</strong></p>
-              <p><span>Tel?fono</span><strong>{request.phone || "No capturado"}</strong></p>
+              <p><span>Teléfono</span><strong>{request.phone || "No capturado"}</strong></p>
               <p><span>Sector</span><strong>{request.sector || "No capturado"}</strong></p>
             </div>
-            {getRequestComments(request) && <p className="note"><strong>Observaci?n</strong><span>{getRequestComments(request)}</span></p>}
+            {getRequestComments(request) && <p className="note"><strong>Observación</strong><span>{getRequestComments(request)}</span></p>}
+            {request.status === "approved" && (
+              <div className="approved-access-summary">
+                <p><span>Correo de acceso</span><strong>{request.email || "No capturado"}</strong></p>
+                <p><span>Contraseña temporal sugerida</span><strong>{request.suggestedTemporaryPassword || getSuggestedTemporaryPassword(request.folio)}</strong></p>
+                <small>Revisa la solicitud para copiar el mensaje completo.</small>
+              </div>
+            )}
             <div className="actions-row">
               <button className="primary" onClick={() => setSelectedRequest(request)}>Revisar solicitud</button>
             </div>
@@ -1167,8 +1181,8 @@ function AccessRequestDetail({ request, error, message, onBack, onApprove, onRej
   const status = request.status || "pending";
   return (
     <section className="request-detail">
-      <button className="back-link" onClick={onBack}>? Volver a solicitudes</button>
-      <SectionTitle title="Revisi?n de solicitud" subtitle="Detalle operativo para aprobar o rechazar el acceso de la empresa." />
+      <button className="back-link" onClick={onBack}>← Volver a solicitudes</button>
+      <SectionTitle title="Revisión de solicitud" subtitle="Detalle operativo para aprobar o rechazar el acceso de la empresa." />
       {error && <div className="save-status error">{error}</div>}
       {message && <div className="save-status success">{message}</div>}
       <div className="card request-detail-card">
@@ -1183,17 +1197,20 @@ function AccessRequestDetail({ request, error, message, onBack, onApprove, onRej
           <p><span>RFC</span><strong>{request.rfc || "No capturado"}</strong></p>
           <p><span>Representante</span><strong>{request.contactName || "No capturado"}</strong></p>
           <p><span>Correo</span><strong>{request.email || "No capturado"}</strong></p>
-          <p><span>Tel?fono</span><strong>{request.phone || "No capturado"}</strong></p>
+          <p><span>Teléfono</span><strong>{request.phone || "No capturado"}</strong></p>
           <p><span>Sector</span><strong>{request.sector || "No capturado"}</strong></p>
           <p><span>Ciudad</span><strong>{request.city || "Nuevo Laredo"}</strong></p>
           <p><span>Estado</span><strong>{request.state || "Tamaulipas"}</strong></p>
         </div>
         {getRequestComments(request) && <p className="note"><strong>Comentarios</strong><span>{getRequestComments(request)}</span></p>}
         {status === "pending" && (
-          <div className="actions-row">
-            <button className="primary" onClick={() => onApprove(request)}>Crear empresa y aprobar</button>
-            <button className="secondary" onClick={() => onReject(request)}>Rechazar solicitud</button>
-          </div>
+          <>
+            <div className="notice"><ShieldCheck size={18} /> Esta acción crea o actualiza el registro de empresa y aprueba la solicitud. La cuenta de acceso se crea aparte antes de enviar el mensaje.</div>
+            <div className="actions-row">
+              <button className="primary" onClick={() => onApprove(request)}>Crear empresa y aprobar</button>
+              <button className="secondary" onClick={() => onReject(request)}>Rechazar solicitud</button>
+            </div>
+          </>
         )}
         {status === "approved" && <AccessMessageBlock request={request} />}
         {status === "rejected" && (
@@ -1221,7 +1238,7 @@ function AccessMessageBlock({ request }: { request: AccessRequestRecord }) {
       <div className="access-credential"><span>Correo de acceso</span><strong>{request.email}</strong></div>
       <div className="access-credential"><span>Contraseña temporal sugerida</span><strong>{temporaryPassword}</strong></div>
       <pre>{message}</pre>
-      <div className="notice"><ShieldCheck size={18} /> Antes de enviar el mensaje, asegúrate de que el acceso de la empresa haya sido creado y activado.</div>
+      <div className="notice"><ShieldCheck size={18} /> Antes de enviar el mensaje, asegúrate de que la cuenta de acceso de la empresa haya sido creada y activada.</div>
       <div className="actions-row">
         <button className="secondary" onClick={copyMessage}>{copied ? "Mensaje copiado" : "Copiar mensaje"}</button>
         {whatsappUrl && <a className="primary" href={whatsappUrl} target="_blank" rel="noreferrer">Enviar por WhatsApp</a>}
@@ -1425,7 +1442,7 @@ function CompaniesTable({ setSelectedCompanyId, setSelectedAdminCompany, setView
         followUpStatus: "Sin iniciar",
       });
     } catch (error) {
-      setCompanySaveError(error instanceof Error ? error.message : "No fue posible guardar la empresa.");
+      setCompanySaveError(getFriendlyErrorMessage(error, "No fue posible guardar la empresa."));
     } finally {
       setSavingCompany(false);
     }
