@@ -1,8 +1,12 @@
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut, updatePassword, type User } from "firebase/auth";
+import { createUserWithEmailAndPassword, onAuthStateChanged, signInWithEmailAndPassword, signOut, updatePassword, type User } from "firebase/auth";
 import { auth } from "../firebase/firebaseConfig";
 
 export function loginWithEmail(email: string, password: string) {
   return signInWithEmailAndPassword(auth, email, password);
+}
+
+export function registerWithEmail(email: string, password: string) {
+  return createUserWithEmailAndPassword(auth, email, password);
 }
 
 export function logout() {

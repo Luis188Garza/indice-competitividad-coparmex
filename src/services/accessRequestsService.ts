@@ -13,6 +13,9 @@ export type AccessRequestData = {
   sector?: string;
   city?: string;
   state?: string;
+  authUid?: string;
+  linkedCompanyId?: string;
+  accessStatus?: "pending" | "active" | "rejected";
 };
 
 export type AccessRequestRecord = AccessRequestData & {
@@ -21,7 +24,6 @@ export type AccessRequestRecord = AccessRequestData & {
   approvedAt?: unknown;
   reviewedAt?: unknown;
   suggestedTemporaryPassword?: string;
-  linkedCompanyId?: string;
   rejectionReason?: string;
 };
 

@@ -19,7 +19,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { diagnosticICE } from "./data/diagnosticICE";
 import { activityLog, companies, diagnostics, documents, observations, roles } from "./data/mockData";
 import { CompanyProfile, DiagnosticResult, SelectedDiagnosticOption } from "./types";
-import { changeCurrentUserPassword, loginWithEmail, listenAuthState, logout as firebaseLogout } from "./services/authService";
+import { changeCurrentUserPassword, loginWithEmail, listenAuthState, logout as firebaseLogout, registerWithEmail } from "./services/authService";
 import { createCompany, getCompanyByAuthUid, listCompanies, updateCompany } from "./services/companiesService";
 import { listAccessRequests, saveAccessRequest, updateAccessRequestStatus, type AccessRequestRecord } from "./services/accessRequestsService";
 import { getResponsesByCompany, saveDiagnosticResponse } from "./services/diagnosticResponsesService";
@@ -84,26 +84,19 @@ function getAnswerStorageKey(companyId: string) {
   return `ice-diagnostic-answers-${companyId}`;
 }
 
-function getSuggestedTemporaryPassword(folio?: string) {
-  const cleanFolio = folio?.trim() || "COPARMEX";
-  return `ICE-${cleanFolio}-2026*`;
-}
-
 function normalizePhoneForWhatsapp(phone?: string) {
   return (phone || "").replace(/\D/g, "");
 }
 
 function getAccessMessage(request: AccessRequestRecord) {
-  const temporaryPassword = request.suggestedTemporaryPassword || getSuggestedTemporaryPassword(request.folio);
   const greetingName = request.contactName || request.companyName;
   return `Hola, ${greetingName}.
 
 Tu solicitud de acceso al Diagnóstico ICE COPARMEX fue aprobada.
 
 Usuario: ${request.email}
-Contraseña temporal: ${temporaryPassword}
 
-Al ingresar por primera vez, el sistema te pedirá crear una nueva contraseña personal.
+Ingresa con la contraseña que registraste al enviar tu solicitud.
 
 Ingresa a la plataforma para realizar tu autodiagnóstico.`;
 }
@@ -121,6 +114,10 @@ function formatRequestDate(value: unknown) {
 
 function getFriendlyErrorMessage(error: unknown, fallback: string) {
   const raw = error instanceof Error ? error.message : "";
+  if (raw.includes("auth/email-already-in-use")) return "Este correo ya tiene una cuenta registrada.";
+  if (raw.includes("auth/invalid-email")) return "Captura un correo válido.";
+  if (raw.includes("auth/weak-password")) return "La contraseña debe tener al menos 8 caracteres.";
+  if (raw.includes("auth/invalid-credential") || raw.includes("auth/wrong-password") || raw.includes("auth/user-not-found")) return "Correo o contraseña incorrectos.";
   const technicalMarkers = ["Firebase", "Firestore", "auth/", "UID", "collection", "document"];
   if (!raw || technicalMarkers.some((marker) => raw.includes(marker))) return fallback;
   return raw;
@@ -411,6 +408,12 @@ function App() {
     const company = mapCompanyRecord(companyData as Record<string, any>);
     if (company.accessStatus && company.accessStatus.toLowerCase() !== "active") {
       await firebaseLogout();
+      if (company.accessStatus.toLowerCase() === "pending") {
+        throw new Error("Tu solicitud de acceso está en revisión.");
+      }
+      if (company.accessStatus.toLowerCase() === "rejected") {
+        throw new Error("Tu solicitud de acceso fue rechazada.");
+      }
       throw new Error("El acceso de esta empresa no está activo.");
     }
 
@@ -693,6 +696,8 @@ function AccessRequestScreen({ onBack }: { onBack: () => void }) {
     city: "Nuevo Laredo",
     state: "Tamaulipas",
     comments: "",
+    password: "",
+    confirmPassword: "",
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -707,11 +712,59 @@ function AccessRequestScreen({ onBack }: { onBack: () => void }) {
       return;
     }
 
+    if (form.password.length < 8) {
+      setError("La contrase?a debe tener al menos 8 caracteres.");
+      return;
+    }
+
+    if (form.password !== form.confirmPassword) {
+      setError("La confirmación no coincide con la contraseña.");
+      return;
+    }
+
     setLoading(true);
     try {
-      const requestId = await saveAccessRequest(form);
+      const credential = await registerWithEmail(form.email.trim(), form.password);
+      const normalizedFolio = form.folio.trim().toUpperCase();
+      const companyId = normalizedFolio || credential.user.uid;
+      await createCompany({
+        id: companyId,
+        folio: normalizedFolio,
+        name: form.companyName,
+        rfc: form.rfc,
+        representative: form.contactName,
+        email: form.email.trim().toLowerCase(),
+        phone: form.phone,
+        sector: form.sector,
+        city: form.city,
+        state: form.state,
+        comments: form.comments,
+        role: "company",
+        status: "En revisión",
+        accessStatus: "pending",
+        followUpStatus: "Sin iniciar",
+        interestedInAdvisory: false,
+        mustChangePassword: false,
+        authUid: credential.user.uid,
+      });
+      const requestId = await saveAccessRequest({
+        folio: normalizedFolio,
+        companyName: form.companyName,
+        contactName: form.contactName,
+        email: form.email.trim().toLowerCase(),
+        phone: form.phone,
+        rfc: form.rfc,
+        sector: form.sector,
+        city: form.city,
+        state: form.state,
+        comments: form.comments,
+        authUid: credential.user.uid,
+        linkedCompanyId: companyId,
+        accessStatus: "pending",
+      });
+      await firebaseLogout();
       setSuccess(`Solicitud enviada correctamente. Folio de solicitud: ${requestId}`);
-      setForm({ folio: "", companyName: "", contactName: "", email: "", phone: "", rfc: "", sector: "Administración y desarrollo empresarial", city: "Nuevo Laredo", state: "Tamaulipas", comments: "" });
+      setForm({ folio: "", companyName: "", contactName: "", email: "", phone: "", rfc: "", sector: "Administración y desarrollo empresarial", city: "Nuevo Laredo", state: "Tamaulipas", comments: "", password: "", confirmPassword: "" });
     } catch (err) {
       setError(getFriendlyErrorMessage(err, "No fue posible enviar la solicitud de acceso."));
     } finally {
@@ -734,6 +787,8 @@ function AccessRequestScreen({ onBack }: { onBack: () => void }) {
           options={["Administración y desarrollo empresarial", "Servicios legales", "Logística y operación", "Servicios notariales", "Gestión empresarial", "Comercio", "Industria", "Servicios profesionales", "Tecnología"]}
         />
         <Field label="Correo autorizado" value={form.email} onChange={(value) => update("email", value)} />
+        <PasswordField label="Contraseña" value={form.password} onChange={(value) => update("password", value)} />
+        <PasswordField label="Confirmar contrase?a" value={form.confirmPassword} onChange={(value) => update("confirmPassword", value)} />
         <Field label="Teléfono" value={form.phone} onChange={(value) => update("phone", value)} />
         <Field label="Ciudad" value={form.city} onChange={(value) => update("city", value)} />
         <Field label="Estado" value={form.state} onChange={(value) => update("state", value)} />
@@ -1034,6 +1089,14 @@ function AccessRequestsPanel() {
     const reason = window.prompt("Motivo de rechazo (opcional):") || "";
     try {
       const extraData = { rejectionReason: reason, reviewedAt: new Date().toISOString() };
+      const companyId = request.linkedCompanyId || request.folio?.trim().toUpperCase();
+      if (companyId) {
+        await updateCompany(companyId, {
+          accessStatus: "rejected",
+          status: "Rechazada",
+          followUpStatus: "Rechazada",
+        });
+      }
       await updateAccessRequestStatus(request.id, "rejected", extraData);
       updateRequestLocally({ ...request, status: "rejected", ...extraData });
       setMessage("Solicitud rechazada.");
@@ -1042,7 +1105,7 @@ function AccessRequestsPanel() {
     }
   };
 
-  const createCompanyAndApprove = async (request: AccessRequestRecord) => {
+  const approveRequest = async (request: AccessRequestRecord) => {
     setMessage("");
     setError("");
 
@@ -1057,64 +1120,31 @@ function AccessRequestsPanel() {
     }
 
     if (!request.phone && !request.contactName) {
-      setError("Captura al menos teléfono o representante para aprobar la solicitud.");
+      setError("Captura al menos tel?fono o representante para aprobar la solicitud.");
       return;
     }
 
     try {
-      const existingCompanies = await listCompanies();
-      const normalizedFolio = request.folio?.trim().toUpperCase();
-      const normalizedEmail = request.email.trim().toLowerCase();
-      const existingCompany = existingCompanies.find((company: any) => {
-        const folio = String(company.folio || company.id || "").trim().toUpperCase();
-        const email = String(company.email || "").trim().toLowerCase();
-        return Boolean((normalizedFolio && folio === normalizedFolio) || (normalizedEmail && email === normalizedEmail));
-      }) as Record<string, any> | undefined;
-
-      if (existingCompany) {
-        const confirmed = window.confirm("Ya existe una empresa con este folio o correo. ?Deseas actualizar sus datos con esta solicitud?");
-        if (!confirmed) return;
+      const companyId = request.linkedCompanyId || request.folio?.trim().toUpperCase();
+      if (!companyId) {
+        setError("No encontramos la empresa vinculada a esta solicitud.");
+        return;
       }
-
-      const companyId = String(existingCompany?.id || normalizedFolio || `SOL-${request.id.slice(0, 8).toUpperCase()}`);
-      const companyPayload = {
-        id: companyId,
-        folio: normalizedFolio || companyId,
-        name: request.companyName,
-        rfc: request.rfc || "",
-        representative: request.contactName || "",
-        email: request.email,
-        phone: request.phone || "",
-        sector: request.sector || "No especificado",
-        city: request.city || "Nuevo Laredo",
-        state: request.state || "Tamaulipas",
-        comments: getRequestComments(request),
-        role: "company",
-        status: "Activa",
+      await updateCompany(companyId, {
         accessStatus: "active",
+        status: "Activa",
         followUpStatus: "Sin iniciar",
-        interestedInAdvisory: false,
-        mustChangePassword: true,
-      };
-
-      if (existingCompany) {
-        await updateCompany(companyId, companyPayload);
-      } else {
-        await createCompany(companyPayload);
-      }
-
-      const temporaryPassword = getSuggestedTemporaryPassword(request.folio);
+      });
       const extraData = {
         approvedAt: new Date().toISOString(),
         reviewedAt: new Date().toISOString(),
         linkedCompanyId: companyId,
-        suggestedTemporaryPassword: temporaryPassword,
       };
       await updateAccessRequestStatus(request.id, "approved", extraData);
       updateRequestLocally({ ...request, status: "approved", ...extraData });
-      setMessage("Empresa creada y solicitud aprobada. Crea la cuenta de acceso antes de enviar el mensaje.");
+      setMessage("Empresa autorizada correctamente. La cuenta de acceso ya puede ingresar.");
     } catch (err) {
-      setError(getFriendlyErrorMessage(err, "No fue posible crear la empresa y aprobar la solicitud."));
+      setError(getFriendlyErrorMessage(err, "No fue posible aprobar la solicitud."));
     }
   };
 
@@ -1127,7 +1157,7 @@ function AccessRequestsPanel() {
         error={error}
         message={message}
         onBack={() => setSelectedRequest(null)}
-        onApprove={createCompanyAndApprove}
+        onApprove={approveRequest}
         onReject={rejectRequest}
       />
     );
@@ -1163,8 +1193,8 @@ function AccessRequestsPanel() {
             {request.status === "approved" && (
               <div className="approved-access-summary">
                 <p><span>Correo de acceso</span><strong>{request.email || "No capturado"}</strong></p>
-                <p><span>Contraseña temporal sugerida</span><strong>{request.suggestedTemporaryPassword || getSuggestedTemporaryPassword(request.folio)}</strong></p>
-                <small>Revisa la solicitud para copiar el mensaje completo.</small>
+                <p><span>Estado</span><strong>Cuenta autorizada</strong></p>
+                <small>La empresa ya puede ingresar con la contrase?a que registr? en su solicitud.</small>
               </div>
             )}
             <div className="actions-row">
@@ -1205,9 +1235,9 @@ function AccessRequestDetail({ request, error, message, onBack, onApprove, onRej
         {getRequestComments(request) && <p className="note"><strong>Comentarios</strong><span>{getRequestComments(request)}</span></p>}
         {status === "pending" && (
           <>
-            <div className="notice"><ShieldCheck size={18} /> Esta acción crea o actualiza el registro de empresa y aprueba la solicitud. La cuenta de acceso se crea aparte antes de enviar el mensaje.</div>
+            <div className="notice"><ShieldCheck size={18} /> Esta acción autoriza la cuenta que la empresa creó al solicitar acceso.</div>
             <div className="actions-row">
-              <button className="primary" onClick={() => onApprove(request)}>Crear empresa y aprobar</button>
+              <button className="primary" onClick={() => onApprove(request)}>Autorizar acceso</button>
               <button className="secondary" onClick={() => onReject(request)}>Rechazar solicitud</button>
             </div>
           </>
@@ -1223,8 +1253,7 @@ function AccessRequestDetail({ request, error, message, onBack, onApprove, onRej
 
 function AccessMessageBlock({ request }: { request: AccessRequestRecord }) {
   const [copied, setCopied] = useState(false);
-  const temporaryPassword = request.suggestedTemporaryPassword || getSuggestedTemporaryPassword(request.folio);
-  const message = getAccessMessage({ ...request, suggestedTemporaryPassword: temporaryPassword });
+  const message = getAccessMessage(request);
   const phone = normalizePhoneForWhatsapp(request.phone);
   const whatsappUrl = phone ? `https://wa.me/52${phone}?text=${encodeURIComponent(message)}` : "";
   const copyMessage = async () => {
@@ -1234,11 +1263,10 @@ function AccessMessageBlock({ request }: { request: AccessRequestRecord }) {
 
   return (
     <div className="access-message">
-      <h4>Datos de acceso sugeridos</h4>
+      <h4>Cuenta autorizada</h4>
       <div className="access-credential"><span>Correo de acceso</span><strong>{request.email}</strong></div>
-      <div className="access-credential"><span>Contraseña temporal sugerida</span><strong>{temporaryPassword}</strong></div>
       <pre>{message}</pre>
-      <div className="notice"><ShieldCheck size={18} /> Antes de enviar el mensaje, asegúrate de que la cuenta de acceso de la empresa haya sido creada y activada.</div>
+      <div className="notice"><ShieldCheck size={18} /> La empresa ya puede ingresar con la contrase?a que registr? en su solicitud.</div>
       <div className="actions-row">
         <button className="secondary" onClick={copyMessage}>{copied ? "Mensaje copiado" : "Copiar mensaje"}</button>
         {whatsappUrl && <a className="primary" href={whatsappUrl} target="_blank" rel="noreferrer">Enviar por WhatsApp</a>}
