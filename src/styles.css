@@ -246,7 +246,7 @@ main { min-height: calc(100vh - 74px); }
 .company-form-card { margin-bottom: 18px; }
 .company-form-card h3 { margin: 0 0 16px; color: var(--navy); }
 .field span { display: block; margin-bottom: 7px; color: var(--navy); font-weight: 800; }
-.field input, .field select {
+.field input, .field select, .field textarea {
   width: 100%;
   min-height: 46px;
   border: 1px solid var(--line);
@@ -254,6 +254,42 @@ main { min-height: calc(100vh - 74px); }
   padding: 10px 12px;
   background: white;
   color: var(--text);
+}
+.field textarea {
+  min-height: 108px;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.45;
+}
+.folio-lookup {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+.folio-lookup .secondary { min-height: 46px; }
+.password-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.password-control input {
+  border-radius: 8px 0 0 8px;
+}
+.password-control button {
+  min-height: 46px;
+  border: 1px solid var(--line);
+  border-left: 0;
+  border-radius: 0 8px 8px 0;
+  padding: 0 14px;
+  background: #f8fafc;
+  color: var(--navy);
+  font-weight: 800;
+}
+.field-hint {
+  margin: -6px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 700;
 }
 .notice {
   display: flex;

@@ -20,9 +20,10 @@ import { diagnosticICE } from "./data/diagnosticICE";
 import { activityLog, companies, diagnostics, documents, observations, roles } from "./data/mockData";
 import { CompanyProfile, DiagnosticResult, SelectedDiagnosticOption } from "./types";
 import { changeCurrentUserPassword, loginWithEmail, listenAuthState, logout as firebaseLogout, registerWithEmail } from "./services/authService";
-import { createCompany, getCompanyByAuthUid, listCompanies, updateCompany } from "./services/companiesService";
+import { createCompany, getCompanyByAuthUid, getCompanyByFolio, listCompanies, updateCompany } from "./services/companiesService";
 import { listAccessRequests, saveAccessRequest, updateAccessRequestStatus, type AccessRequestRecord } from "./services/accessRequestsService";
-import { getResponsesByCompany, saveDiagnosticResponse } from "./services/diagnosticResponsesService";
+import { getResponsesByCompany, listDiagnosticResponses, saveDiagnosticResponse } from "./services/diagnosticResponsesService";
+import { createObservation, getObservationsByCompany, listObservations, type ObservationRecord } from "./services/observationsService";
 import { calculateDiagnostic, trafficLabel } from "./utils/scoring";
 
 type View = "landing" | "about" | "login" | "loginEmpresa" | "loginAdmin" | "requestAccess" | "register" | "questionnaire" | "result" | "company" | "admin" | "stats" | "detail";
@@ -31,9 +32,37 @@ type AdminTab = "panel" | "empresas" | "solicitudes" | "diagnosticos" | "estadis
 type Session = { isAuthenticated: boolean; role: "empresa" | "admin" | null; companyId?: string; adminName?: string };
 type AnswerState = Record<string, SelectedDiagnosticOption>;
 type AdminCompany = CompanyProfile & { accessStatus?: string; authUid?: string; folio?: string; mustChangePassword?: boolean; source?: "firestore" | "mock" };
+type AppRoute = { view: View; companyTab?: CompanyTab; adminTab?: AdminTab; privateRole?: "empresa" | "admin" };
+type AdminDiagnosticRecord = { id: string; companyId: string; companyName: string; companySector: string; completedAt: string; result: DiagnosticResult; source: "saved" | "local" };
 
 const diagnosticModules = diagnosticICE.modules.slice().sort((a, b) => a.order - b.order);
 const diagnosticQuestions = diagnosticModules.flatMap((module) => module.questions.slice().sort((a, b) => a.order - b.order));
+
+function readHashRoute(): AppRoute {
+  const path = typeof window === "undefined" ? "/" : window.location.hash.replace(/^#/, "") || "/";
+  const companyRoute = path.match(/^\/empresa\/(dashboard|autodiagnostico|resultado|recomendaciones|observaciones|perfil)$/);
+  if (companyRoute) return { view: "company", companyTab: companyRoute[1] as CompanyTab, privateRole: "empresa" };
+
+  if (path === "/solicitar-acceso") return { view: "requestAccess" };
+  if (path === "/login") return { view: "login" };
+  if (path === "/admin") return { view: "admin", adminTab: "panel", privateRole: "admin" };
+  if (path === "/admin/solicitudes") return { view: "admin", adminTab: "solicitudes", privateRole: "admin" };
+  if (path === "/admin/empresas") return { view: "admin", adminTab: "empresas", privateRole: "admin" };
+  return { view: "landing" };
+}
+
+function getHashForState(view: View, companyTab: CompanyTab, adminTab: AdminTab) {
+  if (view === "requestAccess") return "#/solicitar-acceso";
+  if (view === "login" || view === "loginEmpresa" || view === "loginAdmin") return "#/login";
+  if (view === "questionnaire") return "#/empresa/autodiagnostico";
+  if (view === "result") return "#/empresa/resultado";
+  if (view === "company") return `#/empresa/${companyTab === "documentacion" ? "dashboard" : companyTab}`;
+  if (view === "admin") {
+    if (adminTab === "solicitudes" || adminTab === "empresas") return `#/admin/${adminTab}`;
+    return "#/admin";
+  }
+  return "";
+}
 
 const initialCompany: CompanyProfile = {
   id: "COP-NVO",
@@ -112,6 +141,18 @@ function formatRequestDate(value: unknown) {
   return millis ? formatDate(new Date(millis).toISOString()) : "No disponible";
 }
 
+function formatSavedDate(value: unknown) {
+  if (!value) return "Reciente";
+  if (typeof value === "string") return formatDate(value);
+  const millis = (value as { toMillis?: () => number }).toMillis?.();
+  return millis ? formatDate(new Date(millis).toISOString()) : "Reciente";
+}
+
+function observationTime(value: unknown) {
+  if (typeof value === "string") return Date.parse(value) || 0;
+  return (value as { toMillis?: () => number } | undefined)?.toMillis?.() ?? 0;
+}
+
 function getFriendlyErrorMessage(error: unknown, fallback: string) {
   const raw = error instanceof Error ? error.message : "";
   if (raw.includes("auth/email-already-in-use")) return "Este correo ya tiene una cuenta registrada.";
@@ -143,10 +184,24 @@ function mapDiagnosticResponse(item: Record<string, any>): DiagnosticResult {
   };
 }
 
+function mapAdminDiagnosticRecord(item: Record<string, any>): AdminDiagnosticRecord {
+  const result = mapDiagnosticResponse(item);
+  return {
+    id: String(item.id || item.diagnosticId || "Diagnóstico"),
+    companyId: String(item.companyId || ""),
+    companyName: String(item.companyName || "Empresa"),
+    companySector: String(item.companySector || "Sin sector"),
+    completedAt: typeof item.completedAt === "string" ? item.completedAt : result.completedAt,
+    result,
+    source: "saved",
+  };
+}
+
 function App() {
-  const [view, setView] = useState<View>("landing");
-  const [companyTab, setCompanyTab] = useState<CompanyTab>("dashboard");
-  const [adminTab, setAdminTab] = useState<AdminTab>("panel");
+  const initialRoute = useMemo(() => readHashRoute(), []);
+  const [view, setView] = useState<View>(initialRoute.view);
+  const [companyTab, setCompanyTab] = useState<CompanyTab>(initialRoute.companyTab ?? "dashboard");
+  const [adminTab, setAdminTab] = useState<AdminTab>(initialRoute.adminTab ?? "panel");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [selectedCompanyId, setSelectedCompanyId] = useState(companies[0].id);
   const [selectedAdminCompany, setSelectedAdminCompany] = useState<AdminCompany | null>(null);
@@ -172,17 +227,37 @@ function App() {
   const [latestCompanyResult, setLatestCompanyResult] = useState<DiagnosticResult | null>(null);
   const [latestResultLoading, setLatestResultLoading] = useState(false);
   const [latestResultError, setLatestResultError] = useState("");
+  const [savedAdminDiagnostics, setSavedAdminDiagnostics] = useState<AdminDiagnosticRecord[]>([]);
+  const [adminDiagnosticsLoading, setAdminDiagnosticsLoading] = useState(false);
+  const [adminDiagnosticsError, setAdminDiagnosticsError] = useState("");
   const [saveState, setSaveState] = useState<{ loading: boolean; error: string; success: string }>({ loading: false, error: "", success: "" });
   const skipNextAnswerSave = useRef(false);
 
   const completedDiagnostics = diagnostics.filter((diagnostic) => diagnostic.status === "Completo" && diagnostic.result);
+  const localAdminDiagnostics: AdminDiagnosticRecord[] = completedDiagnostics.map((diagnostic) => {
+    const company = companies.find((item) => item.id === diagnostic.companyId);
+    return {
+      id: diagnostic.id,
+      companyId: diagnostic.companyId,
+      companyName: company?.name || "Empresa",
+      companySector: company?.sector || "Sin sector",
+      completedAt: diagnostic.result!.completedAt,
+      result: diagnostic.result!,
+      source: "local",
+    };
+  });
+  const latestSavedByCompany = new Map(savedAdminDiagnostics.map((diagnostic) => [diagnostic.companyId, diagnostic]));
+  const adminLatestDiagnostics = [
+    ...latestSavedByCompany.values(),
+    ...localAdminDiagnostics.filter((diagnostic) => !latestSavedByCompany.has(diagnostic.companyId)),
+  ];
   const selectedCompany = selectedAdminCompany?.id === selectedCompanyId ? selectedAdminCompany : (companies.find((company) => company.id === selectedCompanyId) ?? companies[0]);
-  const selectedDiagnostic = diagnostics.find((diagnostic) => diagnostic.companyId === selectedCompany.id && diagnostic.result);
-  const showcaseDiagnostic = selectedDiagnostic?.result ?? completedDiagnostics[0].result!;
+  const selectedDiagnostic = adminLatestDiagnostics.find((diagnostic) => diagnostic.companyId === selectedCompany.id);
+  const showcaseDiagnostic = selectedDiagnostic?.result ?? null;
   const sessionCompany = authenticatedCompany ?? companies.find((company) => company.id === session.companyId);
   const activeCompany = sessionCompany ?? (profile.name ? profile : companies[0]);
   const activeDiagnostic = diagnostics.find((diagnostic) => diagnostic.companyId === activeCompany.id && diagnostic.result);
-  const activeResult = result ?? latestCompanyResult ?? (authenticatedCompany ? null : (activeDiagnostic?.result ?? showcaseDiagnostic));
+  const activeResult = result ?? latestCompanyResult ?? (authenticatedCompany ? null : (activeDiagnostic?.result ?? completedDiagnostics[0].result!));
   const activeCompanyId = activeCompany.id;
   const requiresPasswordChange = session.role === "empresa" && Boolean(authenticatedCompany?.mustChangePassword);
   const currentQuestions = diagnosticModules[currentModule].questions.slice().sort((a, b) => a.order - b.order);
@@ -240,6 +315,41 @@ function App() {
   }, [authenticatedCompany?.id]);
 
   useEffect(() => {
+    let mounted = true;
+    if (!session.isAuthenticated || session.role !== "admin") {
+      setSavedAdminDiagnostics([]);
+      setAdminDiagnosticsError("");
+      setAdminDiagnosticsLoading(false);
+      return;
+    }
+
+    setAdminDiagnosticsLoading(true);
+    listDiagnosticResponses()
+      .then((items) => {
+        if (!mounted) return;
+        const saved = items.map((item) => mapAdminDiagnosticRecord(item as Record<string, any>));
+        const latest = new Map<string, AdminDiagnosticRecord>();
+        saved.forEach((diagnostic) => {
+          if (diagnostic.companyId && !latest.has(diagnostic.companyId)) latest.set(diagnostic.companyId, diagnostic);
+        });
+        setSavedAdminDiagnostics([...latest.values()]);
+        setAdminDiagnosticsError("");
+      })
+      .catch((error) => {
+        if (!mounted) return;
+        setSavedAdminDiagnostics([]);
+        setAdminDiagnosticsError(getFriendlyErrorMessage(error, "No fue posible consultar diagnósticos guardados."));
+      })
+      .finally(() => {
+        if (mounted) setAdminDiagnosticsLoading(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [session.isAuthenticated, session.role]);
+
+  useEffect(() => {
     const unsubscribe = listenAuthState(async (user) => {
       if (!user) {
         setAuthenticatedCompany(null);
@@ -283,42 +393,67 @@ function App() {
   }, [session.isAuthenticated, session.role, view]);
 
   useEffect(() => {
-    if (!session.isAuthenticated) return;
+    if (!authReady) return;
 
-    const fallbackView = session.role === "admin" ? "admin" : "company";
-    window.history.replaceState({ iceView: view }, "", window.location.href);
-    const handlePopState = () => {
-      setView(fallbackView);
-      window.history.pushState({ iceView: fallbackView }, "", window.location.href);
+    const applyHashRoute = () => {
+      const route = readHashRoute();
+      if (route.privateRole && (!session.isAuthenticated || session.role !== route.privateRole)) {
+        setView("login");
+        window.location.hash = "#/login";
+        return;
+      }
+
+      setView(route.view);
+      if (route.companyTab) setCompanyTab(route.companyTab);
+      if (route.adminTab) setAdminTab(route.adminTab);
     };
 
-    window.history.pushState({ iceView: fallbackView }, "", window.location.href);
-    window.addEventListener("popstate", handlePopState);
+    applyHashRoute();
+    window.addEventListener("hashchange", applyHashRoute);
+    return () => window.removeEventListener("hashchange", applyHashRoute);
+  }, [authReady, session.isAuthenticated, session.role]);
 
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, [session.isAuthenticated, session.role, view]);
+  useEffect(() => {
+    if (!authReady) return;
+    const privateCompanyView = view === "company" || view === "questionnaire" || view === "result";
+    const privateAdminView = view === "admin" || view === "stats" || view === "detail";
+    if ((privateCompanyView && session.role !== "empresa") || (privateAdminView && session.role !== "admin")) {
+      setView("login");
+      if (window.location.hash !== "#/login") window.location.hash = "#/login";
+      return;
+    }
+
+    const nextHash = getHashForState(view, companyTab, adminTab);
+    if (!nextHash) {
+      if (window.location.hash) window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+      return;
+    }
+    if (window.location.hash !== nextHash) window.location.hash = nextHash;
+  }, [adminTab, authReady, companyTab, session.role, view]);
 
   const stats = useMemo(() => {
-    const average = Math.round(completedDiagnostics.reduce((sum, diagnostic) => sum + diagnostic.result!.percentage, 0) / completedDiagnostics.length);
-    const highRisk = completedDiagnostics.filter((diagnostic) => diagnostic.result!.percentage < 50).length;
-    const solid = completedDiagnostics.filter((diagnostic) => diagnostic.result!.percentage >= 70).length;
+    const average = Math.round(adminLatestDiagnostics.reduce((sum, diagnostic) => sum + diagnostic.result.percentage, 0) / Math.max(adminLatestDiagnostics.length, 1));
+    const highRisk = adminLatestDiagnostics.filter((diagnostic) => diagnostic.result.percentage < 50).length;
+    const solid = adminLatestDiagnostics.filter((diagnostic) => diagnostic.result.percentage >= 70).length;
     const advisory = companies.filter((company) => company.interestedInAdvisory).length;
-    const pending = diagnostics.filter((diagnostic) => diagnostic.status === "Pendiente").length;
+    const pending = Math.max(companies.length - adminLatestDiagnostics.length, 0);
     const moduleAverages = diagnosticModules.map((module) => {
-      const values = completedDiagnostics.map((diagnostic) => diagnostic.result!.moduleScores.find((score) => score.moduleId === module.id)!.percentage);
-      return { title: module.title, value: Math.round(values.reduce((sum, value) => sum + value, 0) / values.length) };
+      const values = adminLatestDiagnostics
+        .map((diagnostic) => diagnostic.result.moduleScores.find((score) => score.moduleId === module.id)?.percentage)
+        .filter((value): value is number => typeof value === "number");
+      return { title: module.title, value: Math.round(values.reduce((sum, value) => sum + value, 0) / Math.max(values.length, 1)) };
     });
-    const sectors = [...new Set(companies.map((company) => company.sector))].map((sector) => ({
+    const sectors = [...new Set([...companies.map((company) => company.sector), ...adminLatestDiagnostics.map((diagnostic) => diagnostic.companySector)])].map((sector) => ({
       sector,
-      count: companies.filter((company) => company.sector === sector).length,
+      count: adminLatestDiagnostics.filter((diagnostic) => diagnostic.companySector === sector).length || companies.filter((company) => company.sector === sector).length,
       average: Math.round(
-        completedDiagnostics
-          .filter((diagnostic) => companies.find((company) => company.id === diagnostic.companyId)?.sector === sector)
-          .reduce((sum, diagnostic, _, array) => sum + diagnostic.result!.percentage / Math.max(array.length, 1), 0),
+        adminLatestDiagnostics
+          .filter((diagnostic) => diagnostic.companySector === sector)
+          .reduce((sum, diagnostic, _, array) => sum + diagnostic.result.percentage / Math.max(array.length, 1), 0),
       ),
     }));
-    return { average, highRisk, solid, advisory, pending, moduleAverages, sectors };
-  }, [completedDiagnostics]);
+    return { average, highRisk, solid, advisory, pending, moduleAverages, sectors, diagnostics: adminLatestDiagnostics };
+  }, [adminLatestDiagnostics]);
 
   const completeDiagnostic = async () => {
     const nextResult = calculateDiagnostic(answers);
@@ -386,6 +521,7 @@ function App() {
     setView("landing");
     setCompanyTab("dashboard");
     setAdminTab("panel");
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
   };
 
   const completePasswordChange = () => {
@@ -421,6 +557,7 @@ function App() {
     window.localStorage.setItem("ice-current-company", JSON.stringify(company));
     setSession({ isAuthenticated: true, role: "empresa", companyId: company.id });
     setSelectedCompanyId(company.id);
+    setCompanyTab("dashboard");
     setView("company");
   };
 
@@ -428,6 +565,7 @@ function App() {
     if (user.trim().toLowerCase() === "admin@coparmexnld.org.mx" && password === "admin123") {
       setSession({ isAuthenticated: true, role: "admin", adminName: "Administrador COPARMEX" });
       window.localStorage.setItem("ice-admin-session", JSON.stringify({ isAuthenticated: true, role: "admin", adminName: "Administrador COPARMEX" }));
+      setAdminTab("panel");
       setView("admin");
       return true;
     }
@@ -519,6 +657,9 @@ function App() {
             setSelectedAdminCompany={setSelectedAdminCompany}
             setView={setView}
             onPdf={simulatePdf}
+            diagnostics={adminLatestDiagnostics}
+            diagnosticsLoading={adminDiagnosticsLoading}
+            diagnosticsError={adminDiagnosticsError}
           />
         )}
         {authReady && view === "stats" && session.role === "admin" && <RegionalStats stats={stats} />}
@@ -539,7 +680,7 @@ function MobileDrawerContent(props: {
   close: () => void;
   logout: () => void;
 }) {
-  const companyTabs: CompanyTab[] = ["dashboard", "autodiagnostico", "resultado", "recomendaciones", "observaciones", "perfil", "documentacion"];
+  const companyTabs: CompanyTab[] = ["dashboard", "autodiagnostico", "resultado", "recomendaciones", "observaciones", "perfil"];
   const adminTabs: AdminTab[] = ["panel", "empresas", "solicitudes", "diagnosticos", "estadisticas", "observaciones", "reportes", "configuracion"];
   const go = (view: View) => {
     props.setView(view);
@@ -698,11 +839,55 @@ function AccessRequestScreen({ onBack }: { onBack: () => void }) {
     comments: "",
     password: "",
     confirmPassword: "",
+    companyRecordId: "",
   });
   const [loading, setLoading] = useState(false);
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [lookupMessage, setLookupMessage] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const update = (field: keyof typeof form, value: string) => setForm((current) => ({ ...current, [field]: value }));
+  const searchFolio = async () => {
+    const normalizedFolio = form.folio.trim().toUpperCase();
+    setLookupMessage("");
+    setError("");
+    setSuccess("");
+
+    if (!normalizedFolio) {
+      setError("Captura el folio de afiliación para buscar la empresa.");
+      return;
+    }
+
+    setLookupLoading(true);
+    try {
+      const company = await getCompanyByFolio(normalizedFolio);
+      if (!company) {
+        setError("No encontramos una empresa con ese folio. Verifica el dato o solicita apoyo a COPARMEX.");
+        return;
+      }
+
+      const companyData = mapCompanyRecord(company as Record<string, any>);
+      setForm((current) => ({
+        ...current,
+        folio: getCompanyFolio(companyData),
+        companyName: companyData.name,
+        contactName: companyData.representative,
+        email: companyData.email,
+        phone: companyData.phone,
+        rfc: String((company as Record<string, any>).rfc || ""),
+        sector: companyData.sector,
+        city: companyData.city,
+        state: companyData.state,
+        comments: String((company as Record<string, any>).comments || current.comments),
+        companyRecordId: companyData.id,
+      }));
+      setLookupMessage("Empresa encontrada. Revisa los datos y captura tu contraseña.");
+    } catch (reason) {
+      setError(getFriendlyErrorMessage(reason, "No fue posible consultar el folio en este momento."));
+    } finally {
+      setLookupLoading(false);
+    }
+  };
   const submit = async () => {
     setError("");
     setSuccess("");
@@ -712,8 +897,13 @@ function AccessRequestScreen({ onBack }: { onBack: () => void }) {
       return;
     }
 
+    if (!form.companyRecordId) {
+      setError("Busca el folio y confirma que la empresa exista antes de enviar la solicitud.");
+      return;
+    }
+
     if (form.password.length < 8) {
-      setError("La contrase?a debe tener al menos 8 caracteres.");
+      setError("La contraseña debe tener al menos 8 caracteres.");
       return;
     }
 
@@ -726,8 +916,8 @@ function AccessRequestScreen({ onBack }: { onBack: () => void }) {
     try {
       const credential = await registerWithEmail(form.email.trim(), form.password);
       const normalizedFolio = form.folio.trim().toUpperCase();
-      const companyId = normalizedFolio || credential.user.uid;
-      await createCompany({
+      const companyId = form.companyRecordId || normalizedFolio || credential.user.uid;
+      await updateCompany(companyId, {
         id: companyId,
         folio: normalizedFolio,
         name: form.companyName,
@@ -764,7 +954,7 @@ function AccessRequestScreen({ onBack }: { onBack: () => void }) {
       });
       await firebaseLogout();
       setSuccess(`Solicitud enviada correctamente. Folio de solicitud: ${requestId}`);
-      setForm({ folio: "", companyName: "", contactName: "", email: "", phone: "", rfc: "", sector: "Administración y desarrollo empresarial", city: "Nuevo Laredo", state: "Tamaulipas", comments: "", password: "", confirmPassword: "" });
+      setForm({ folio: "", companyName: "", contactName: "", email: "", phone: "", rfc: "", sector: "Administración y desarrollo empresarial", city: "Nuevo Laredo", state: "Tamaulipas", comments: "", password: "", confirmPassword: "", companyRecordId: "" });
     } catch (err) {
       setError(getFriendlyErrorMessage(err, "No fue posible enviar la solicitud de acceso."));
     } finally {
@@ -776,7 +966,14 @@ function AccessRequestScreen({ onBack }: { onBack: () => void }) {
     <section className="page narrow">
       <SectionTitle title="Solicitar acceso" subtitle="Solicitud para empresas previamente registradas por COPARMEX Nuevo Laredo. El acceso queda sujeto a validación administrativa." />
       <div className="login-card">
-        <Field label="Folio asignado por COPARMEX" value={form.folio} onChange={(value) => update("folio", value)} />
+        <div className="folio-lookup">
+          <Field label="Folio de afiliación" value={form.folio} onChange={(value) => {
+            setLookupMessage("");
+            setForm((current) => ({ ...current, folio: value.toUpperCase(), companyRecordId: "" }));
+          }} />
+          <button className="secondary" onClick={searchFolio} disabled={lookupLoading}>{lookupLoading ? "Buscando..." : "Buscar folio"}</button>
+        </div>
+        {lookupMessage && <p className="save-status success">{lookupMessage}</p>}
         <Field label="Nombre de empresa" value={form.companyName} onChange={(value) => update("companyName", value)} />
         <Field label="RFC" value={form.rfc} onChange={(value) => update("rfc", value)} />
         <Field label="Nombre del contacto" value={form.contactName} onChange={(value) => update("contactName", value)} />
@@ -788,7 +985,8 @@ function AccessRequestScreen({ onBack }: { onBack: () => void }) {
         />
         <Field label="Correo autorizado" value={form.email} onChange={(value) => update("email", value)} />
         <PasswordField label="Contraseña" value={form.password} onChange={(value) => update("password", value)} />
-        <PasswordField label="Confirmar contrase?a" value={form.confirmPassword} onChange={(value) => update("confirmPassword", value)} />
+        <PasswordField label="Confirmar contraseña" value={form.confirmPassword} onChange={(value) => update("confirmPassword", value)} />
+        <p className="field-hint">La contraseña debe tener al menos 8 caracteres.</p>
         <Field label="Teléfono" value={form.phone} onChange={(value) => update("phone", value)} />
         <Field label="Ciudad" value={form.city} onChange={(value) => update("city", value)} />
         <Field label="Estado" value={form.state} onChange={(value) => update("state", value)} />
@@ -1019,7 +1217,7 @@ function ResultScreen({ company, result, saveState, onPdf, onPortal }: { company
 }
 
 function CompanyPortal({ tab, setTab, company, result, loadingResult, resultError, onStart, onPdf }: { tab: CompanyTab; setTab: (tab: CompanyTab) => void; company: CompanyProfile; result: DiagnosticResult | null; loadingResult: boolean; resultError: string; onStart: () => void; onPdf: () => void }) {
-  const tabs: CompanyTab[] = ["dashboard", "autodiagnostico", "resultado", "recomendaciones", "observaciones", "perfil", "documentacion"];
+  const tabs: CompanyTab[] = ["dashboard", "autodiagnostico", "resultado", "recomendaciones", "observaciones", "perfil"];
   return (
     <section className="portal">
       <Sidebar title="Portal empresa" items={tabs} active={tab} onSelect={setTab} />
@@ -1028,7 +1226,7 @@ function CompanyPortal({ tab, setTab, company, result, loadingResult, resultErro
         {tab === "autodiagnostico" && <PrepPanel onStart={onStart} />}
         {tab === "resultado" && (result ? <ResultScreen company={company} result={result} saveState={{ loading: false, error: "", success: "" }} onPdf={onPdf} onPortal={() => setTab("dashboard")} /> : <EmptyDiagnosticState company={company} onStart={onStart} loading={loadingResult} error={resultError} />)}
         {tab === "recomendaciones" && (result ? <InsightList title="Plan de acción recomendado" items={result.recommendations} /> : <EmptyDiagnosticState company={company} onStart={onStart} loading={loadingResult} error={resultError} />)}
-        {tab === "observaciones" && <ObservationList companyId={company.id} />}
+        {tab === "observaciones" && <ObservationList companyId={company.id} companyName={company.name} authorRole="company" authorName={company.name} />}
         {tab === "perfil" && <ProfileCard company={company} result={result} />}
         {tab === "documentacion" && <DocumentsPanel companyId={company.id} />}
       </div>
@@ -1036,16 +1234,16 @@ function CompanyPortal({ tab, setTab, company, result, loadingResult, resultErro
   );
 }
 
-function AdminPortal(props: { tab: AdminTab; setTab: (tab: AdminTab) => void; stats: any; selectedCompanyId: string; setSelectedCompanyId: (id: string) => void; setSelectedAdminCompany: (company: AdminCompany | null) => void; setView: (view: View) => void; onPdf: () => void }) {
+function AdminPortal(props: { tab: AdminTab; setTab: (tab: AdminTab) => void; stats: any; selectedCompanyId: string; setSelectedCompanyId: (id: string) => void; setSelectedAdminCompany: (company: AdminCompany | null) => void; setView: (view: View) => void; onPdf: () => void; diagnostics: AdminDiagnosticRecord[]; diagnosticsLoading: boolean; diagnosticsError: string }) {
   const tabs: AdminTab[] = ["panel", "empresas", "solicitudes", "diagnosticos", "estadisticas", "observaciones", "reportes", "configuracion"];
   return (
     <section className="portal">
       <Sidebar title="Panel administrativo" items={tabs} active={props.tab} onSelect={props.setTab} />
       <div className="portal-content">
         {props.tab === "panel" && <AdminDashboard stats={props.stats} />}
-        {props.tab === "empresas" && <CompaniesTable setSelectedCompanyId={props.setSelectedCompanyId} setSelectedAdminCompany={props.setSelectedAdminCompany} setView={props.setView} onPdf={props.onPdf} />}
+        {props.tab === "empresas" && <CompaniesTable diagnostics={props.diagnostics} setSelectedCompanyId={props.setSelectedCompanyId} setSelectedAdminCompany={props.setSelectedAdminCompany} setView={props.setView} onPdf={props.onPdf} />}
         {props.tab === "solicitudes" && <AccessRequestsPanel />}
-        {props.tab === "diagnosticos" && <DiagnosticsPanel />}
+        {props.tab === "diagnosticos" && <DiagnosticsPanel diagnostics={props.diagnostics} loading={props.diagnosticsLoading} error={props.diagnosticsError} />}
         {props.tab === "estadisticas" && <RegionalStats stats={props.stats} compact />}
         {props.tab === "observaciones" && <AllObservations />}
         {props.tab === "reportes" && <ReportsPanel onPdf={props.onPdf} />}
@@ -1194,7 +1392,7 @@ function AccessRequestsPanel() {
               <div className="approved-access-summary">
                 <p><span>Correo de acceso</span><strong>{request.email || "No capturado"}</strong></p>
                 <p><span>Estado</span><strong>Cuenta autorizada</strong></p>
-                <small>La empresa ya puede ingresar con la contrase?a que registr? en su solicitud.</small>
+                <small>La empresa ya puede ingresar con la contraseña que registró en su solicitud.</small>
               </div>
             )}
             <div className="actions-row">
@@ -1266,7 +1464,7 @@ function AccessMessageBlock({ request }: { request: AccessRequestRecord }) {
       <h4>Cuenta autorizada</h4>
       <div className="access-credential"><span>Correo de acceso</span><strong>{request.email}</strong></div>
       <pre>{message}</pre>
-      <div className="notice"><ShieldCheck size={18} /> La empresa ya puede ingresar con la contrase?a que registr? en su solicitud.</div>
+      <div className="notice"><ShieldCheck size={18} /> La empresa ya puede ingresar con la contraseña que registró en su solicitud.</div>
       <div className="actions-row">
         <button className="secondary" onClick={copyMessage}>{copied ? "Mensaje copiado" : "Copiar mensaje"}</button>
         {whatsappUrl && <a className="primary" href={whatsappUrl} target="_blank" rel="noreferrer">Enviar por WhatsApp</a>}
@@ -1289,7 +1487,7 @@ function AdminDashboard({ stats }: { stats: any }) {
       </div>
       <div className="dashboard-grid">
         <ChartBlock title="Promedio por módulo" data={stats.moduleAverages} />
-        <LevelDistribution />
+        <LevelDistribution diagnostics={stats.diagnostics} />
         <ChartBlock title="Distribución por sector" data={stats.sectors.map((sector: any) => ({ title: sector.sector, value: sector.count * 10 }))} />
       </div>
     </>
@@ -1338,7 +1536,7 @@ function EmptyDiagnosticState({ company, onStart, loading, error }: { company: C
   );
 }
 
-function CompaniesTable({ setSelectedCompanyId, setSelectedAdminCompany, setView, onPdf }: { setSelectedCompanyId: (id: string) => void; setSelectedAdminCompany: (company: AdminCompany | null) => void; setView: (view: View) => void; onPdf: () => void }) {
+function CompaniesTable({ diagnostics: adminDiagnostics, setSelectedCompanyId, setSelectedAdminCompany, setView, onPdf }: { diagnostics: AdminDiagnosticRecord[]; setSelectedCompanyId: (id: string) => void; setSelectedAdminCompany: (company: AdminCompany | null) => void; setView: (view: View) => void; onPdf: () => void }) {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [firestoreCompanies, setFirestoreCompanies] = useState<AdminCompany[]>([]);
   const [loadingCompanies, setLoadingCompanies] = useState(false);
@@ -1390,7 +1588,7 @@ function CompaniesTable({ setSelectedCompanyId, setSelectedAdminCompany, setView
 
   const companyRows = displayCompanies.map((company) => ({
     company,
-    diagnostic: diagnostics.find((item) => item.companyId === company.id && item.result),
+    diagnostic: adminDiagnostics.find((item) => item.companyId === company.id),
     observations: observations.filter((observation) => observation.companyId === company.id).length,
   }));
   const openDetail = (company: AdminCompany) => {
@@ -1547,6 +1745,7 @@ function CompaniesTable({ setSelectedCompanyId, setSelectedAdminCompany, setView
                 setOpenMenu={setOpenMenu}
                 onDetail={() => openDetail(company)}
                 onReport={downloadReport}
+                onObservation={() => openDetail(company)}
               />
             </span>
           </div>
@@ -1563,6 +1762,7 @@ function CompaniesTable({ setSelectedCompanyId, setSelectedAdminCompany, setView
                 setOpenMenu={setOpenMenu}
                 onDetail={() => openDetail(company)}
                 onReport={downloadReport}
+                onObservation={() => openDetail(company)}
               />
             </div>
             <h3>{company.name}</h3>
@@ -1582,7 +1782,7 @@ function CompaniesTable({ setSelectedCompanyId, setSelectedAdminCompany, setView
   );
 }
 
-function ActionMenu({ companyId, openMenu, setOpenMenu, onDetail, onReport }: { companyId: string; openMenu: string | null; setOpenMenu: (id: string | null) => void; onDetail: () => void; onReport: () => void }) {
+function ActionMenu({ companyId, openMenu, setOpenMenu, onDetail, onReport, onObservation }: { companyId: string; openMenu: string | null; setOpenMenu: (id: string | null) => void; onDetail: () => void; onReport: () => void; onObservation: () => void }) {
   const isOpen = openMenu === companyId;
   return (
     <div className="action-menu-wrap">
@@ -1591,21 +1791,21 @@ function ActionMenu({ companyId, openMenu, setOpenMenu, onDetail, onReport }: { 
         <div className="action-menu">
           <button onClick={onDetail}><Eye size={15} /> Ver detalle</button>
           <button onClick={onReport}><FileText size={15} /> Descargar reporte</button>
-          <button onClick={() => setOpenMenu(null)}><MessageSquarePlus size={15} /> Agregar observación</button>
+          <button onClick={onObservation}><MessageSquarePlus size={15} /> Agregar observación</button>
         </div>
       )}
     </div>
   );
 }
 
-function CompanyDetail({ company, result, onBack, onPdf }: { company: CompanyProfile; result: DiagnosticResult; onBack: () => void; onPdf: () => void }) {
+function CompanyDetail({ company, result, onBack, onPdf }: { company: CompanyProfile; result: DiagnosticResult | null; onBack: () => void; onPdf: () => void }) {
   return (
     <section className="page">
       <button className="back-link" onClick={onBack}>← Volver a empresas</button>
-      <ResultHeader company={company} result={result} />
-      <TwoColumns left={<ProfileCard company={company} result={result} />} right={<InsightList title="Recomendaciones generadas" items={result.recommendations} />} />
-      <ModuleBars scores={result.moduleScores} />
-      <TwoColumns left={<ObservationList companyId={company.id} />} right={<ActivityPanel companyId={company.id} />} />
+      {result ? <ResultHeader company={company} result={result} /> : <SectionTitle title={company.name} subtitle="Esta empresa aún no tiene un diagnóstico guardado." />}
+      <TwoColumns left={<ProfileCard company={company} result={result} />} right={result ? <InsightList title="Recomendaciones generadas" items={result.recommendations} /> : <div className="card prepared"><ClipboardList size={30} /><h2>Diagnóstico pendiente</h2><p>Los resultados y recomendaciones aparecerán cuando la empresa complete su autodiagnóstico.</p></div>} />
+      {result && <ModuleBars scores={result.moduleScores} />}
+      <TwoColumns left={<ObservationList companyId={company.id} companyName={company.name} authorRole="admin" authorName="Administrador COPARMEX" />} right={<ActivityPanel companyId={company.id} />} />
       <DocumentsPanel companyId={company.id} />
       <button className="secondary" onClick={onPdf}><Download size={18} /> Descargar reporte</button>
     </section>
@@ -1682,8 +1882,21 @@ function Field({ label, value, onChange }: { label: string; value: string; onCha
   return <label className="field"><span>{label}</span><input value={value} onChange={(event) => onChange(event.target.value)} /></label>;
 }
 
+function TextArea({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string }) {
+  return <label className="field"><span>{label}</span><textarea value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} /></label>;
+}
+
 function PasswordField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  return <label className="field"><span>{label}</span><input type="password" value={value} onChange={(event) => onChange(event.target.value)} /></label>;
+  const [visible, setVisible] = useState(false);
+  return (
+    <label className="field">
+      <span>{label}</span>
+      <div className="password-control">
+        <input type={visible ? "text" : "password"} value={value} onChange={(event) => onChange(event.target.value)} />
+        <button type="button" onClick={() => setVisible((current) => !current)}>{visible ? "Ocultar" : "Ver"}</button>
+      </div>
+    </label>
+  );
 }
 
 function Select({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: string[] }) {
@@ -1710,13 +1923,9 @@ function ChartBlock({ title, data }: { title: string; data: { title: string; val
   return <div className="card"><h3>{title}</h3>{data.map((item) => <div className="chart-row" key={item.title}><span>{item.title}</span><div><i style={{ width: `${Math.min(item.value, 100)}%` }} /></div><strong>{item.value}%</strong></div>)}</div>;
 }
 
-function LevelDistribution() {
-  const data = [4, 3, 2, 1, 0].map((level) => ({ title: `Nivel ${level}`, value: completedLevel(level) * 12 }));
+function LevelDistribution({ diagnostics: adminDiagnostics }: { diagnostics: AdminDiagnosticRecord[] }) {
+  const data = [4, 3, 2, 1, 0].map((level) => ({ title: `Nivel ${level}`, value: adminDiagnostics.filter((diagnostic) => diagnostic.result.maturity.level === level).length * 12 }));
   return <ChartBlock title="Empresas por nivel de madurez" data={data} />;
-}
-
-function completedLevel(level: number) {
-  return diagnostics.filter((diagnostic) => diagnostic.result?.maturity.level === level).length;
 }
 
 function PrepPanel({ onStart }: { onStart: () => void }) {
@@ -1750,13 +1959,148 @@ function PrepPanel({ onStart }: { onStart: () => void }) {
   );
 }
 
-function ObservationList({ companyId }: { companyId: string }) {
-  const list = observations.filter((observation) => observation.companyId === companyId);
-  return <div className="card"><h3>Observaciones administrativas</h3>{list.length ? list.map((observation) => <p className="note" key={observation.id}><strong>{observation.author}</strong><span>{formatDate(observation.date)}</span>{observation.text}</p>) : <p className="muted">Sin observaciones nuevas.</p>}<button className="secondary">Agregar observación</button></div>;
+function ObservationList({ companyId, companyName, authorRole, authorName }: { companyId: string; companyName: string; authorRole: "admin" | "company"; authorName: string }) {
+  const [savedObservations, setSavedObservations] = useState<ObservationRecord[]>([]);
+  const [text, setText] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  const localObservations = observations
+    .filter((observation) => observation.companyId === companyId)
+    .map((observation) => ({
+      id: observation.id,
+      companyId: observation.companyId,
+      companyName,
+      author: observation.author,
+      authorRole: "admin" as const,
+      text: observation.text,
+      createdAt: observation.date,
+    }));
+
+  useEffect(() => {
+    let mounted = true;
+    setLoading(true);
+    getObservationsByCompany(companyId)
+      .then((items) => {
+        if (!mounted) return;
+        setSavedObservations([...items].sort((left, right) => observationTime(right.createdAt) - observationTime(left.createdAt)));
+        setError("");
+      })
+      .catch((reason) => {
+        if (mounted) setError(getFriendlyErrorMessage(reason, "No fue posible consultar observaciones guardadas."));
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [companyId]);
+
+  const list = savedObservations.length ? savedObservations : localObservations;
+  const submit = async () => {
+    const cleanText = text.trim();
+    setMessage("");
+    setError("");
+    if (!cleanText) {
+      setError("Escribe una observación antes de enviarla.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const id = await createObservation({ companyId, companyName, author: authorName, authorRole, text: cleanText });
+      setSavedObservations((current) => [{
+        id,
+        companyId,
+        companyName,
+        author: authorName,
+        authorRole,
+        text: cleanText,
+        createdAt: new Date().toISOString(),
+      }, ...current]);
+      setText("");
+      setMessage(authorRole === "admin" ? "Observación enviada a la empresa." : "Observación enviada a COPARMEX.");
+    } catch (reason) {
+      setError(getFriendlyErrorMessage(reason, "No fue posible guardar la observación."));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="card">
+      <h3>{authorRole === "admin" ? "Observaciones de la empresa" : "Observaciones"}</h3>
+      {loading && <p className="muted">Consultando observaciones...</p>}
+      {error && <p className="form-error">{error}</p>}
+      {message && <p className="save-status success">{message}</p>}
+      {list.length ? list.map((observation) => (
+        <p className="note" key={observation.id}>
+          <strong>{observation.author}</strong>
+          <span>{observation.authorRole === "company" ? "Empresa" : "COPARMEX"} - {formatSavedDate(observation.createdAt)}</span>
+          {observation.text}
+        </p>
+      )) : <p className="muted">Aún no hay observaciones registradas.</p>}
+      <TextArea
+        label={authorRole === "admin" ? "Nueva observación para la empresa" : "Nueva observación para COPARMEX"}
+        value={text}
+        placeholder="Escribe el comentario o seguimiento."
+        onChange={setText}
+      />
+      <button className="primary" onClick={submit} disabled={saving}>{saving ? "Guardando..." : "Enviar observación"}</button>
+    </div>
+  );
 }
 
 function AllObservations() {
-  return <div className="card"><h3>Observaciones institucionales</h3>{observations.map((observation) => <p className="note" key={observation.id}><strong>{companies.find((company) => company.id === observation.companyId)?.name}</strong><span>{formatDate(observation.date)} - {observation.author}</span>{observation.text}</p>)}</div>;
+  const [savedObservations, setSavedObservations] = useState<ObservationRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let mounted = true;
+    listObservations()
+      .then((items) => {
+        if (mounted) setSavedObservations(items);
+      })
+      .catch((reason) => {
+        if (mounted) setError(getFriendlyErrorMessage(reason, "No fue posible consultar observaciones guardadas."));
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const localObservations = observations.map((observation) => ({
+    id: observation.id,
+    companyId: observation.companyId,
+    companyName: companies.find((company) => company.id === observation.companyId)?.name || "Empresa",
+    author: observation.author,
+    authorRole: "admin" as const,
+    text: observation.text,
+    createdAt: observation.date,
+  }));
+  const list = savedObservations.length ? savedObservations : localObservations;
+
+  return (
+    <div className="card">
+      <h3>Observaciones institucionales</h3>
+      {loading && <p className="muted">Consultando observaciones...</p>}
+      {error && <p className="form-error">{error}</p>}
+      {list.length ? list.map((observation) => (
+        <p className="note" key={observation.id}>
+          <strong>{observation.companyName}</strong>
+          <span>{observation.author} - {observation.authorRole === "company" ? "Empresa" : "COPARMEX"} - {formatSavedDate(observation.createdAt)}</span>
+          {observation.text}
+        </p>
+      )) : <p className="muted">Aún no hay observaciones registradas.</p>}
+    </div>
+  );
 }
 
 function ProfileCard({ company, result }: { company: CompanyProfile; result: DiagnosticResult | null }) {
@@ -1771,8 +2115,21 @@ function ActivityPanel({ companyId }: { companyId: string }) {
   return <div className="card"><h3>Bitácora de actividades</h3>{activityLog.filter((log) => log.companyId === companyId).map((log) => <p className="note" key={log.id}><strong>{log.event}</strong><span>{log.date} - {log.actor}</span></p>)}</div>;
 }
 
-function DiagnosticsPanel() {
-  return <div className="card"><h3>Diagnósticos</h3>{diagnostics.map((diagnostic) => <p className="note" key={diagnostic.id}><strong>{diagnostic.id} - {companies.find((company) => company.id === diagnostic.companyId)?.name}</strong><span>{diagnostic.status}{diagnostic.result ? ` - ${diagnostic.result.percentage}%` : ""}</span></p>)}</div>;
+function DiagnosticsPanel({ diagnostics: adminDiagnostics, loading, error }: { diagnostics: AdminDiagnosticRecord[]; loading: boolean; error: string }) {
+  return (
+    <div className="card">
+      <h3>Diagnósticos</h3>
+      {loading && <p className="muted">Consultando diagnósticos...</p>}
+      {error && <p className="form-error">{error}</p>}
+      {adminDiagnostics.length ? adminDiagnostics.map((diagnostic) => (
+        <p className="note" key={diagnostic.id}>
+          <strong>{diagnostic.id} - {diagnostic.companyName}</strong>
+          <span>{diagnostic.result.percentage}% - {diagnostic.result.maturity.title} - {formatDate(diagnostic.completedAt)}</span>
+          {diagnostic.source === "saved" ? "Resultado guardado por la empresa." : "Resultado institucional de referencia."}
+        </p>
+      )) : <p className="muted">Aún no hay diagnósticos registrados.</p>}
+    </div>
+  );
 }
 
 function ReportsPanel({ onPdf }: { onPdf: () => void }) {

@@ -48,6 +48,17 @@ export async function getCompanyById(companyId: string) {
   return snapshot.exists() ? { ...snapshot.data(), id: snapshot.id } : null;
 }
 
+export async function getCompanyByFolio(folio: string) {
+  const firestore = requireFirestore();
+  const normalizedFolio = folio.trim().toUpperCase();
+  const directSnapshot = await getDoc(doc(firestore, "companies", normalizedFolio));
+  if (directSnapshot.exists()) return { ...directSnapshot.data(), id: directSnapshot.id };
+
+  const snapshot = await getDocs(query(collection(firestore, "companies"), where("folio", "==", normalizedFolio)));
+  const company = snapshot.docs[0];
+  return company ? { ...company.data(), id: company.id } : null;
+}
+
 export async function getCompanyByAuthUid(authUid: string) {
   const firestore = requireFirestore();
   const snapshot = await getDocs(query(collection(firestore, "companies"), where("authUid", "==", authUid)));
