@@ -43,7 +43,7 @@ const demoFolioCompany = {
   folio: "1234",
   name: "Empresa de Demostración COPARMEX",
   rfc: "EDC260101ABC",
-  representative: "Luis Garza",
+  representative: "Andrea Villarreal",
   email: "empresa.demo@coparmexnld.org.mx",
   phone: "8671234567",
   sector: "Administración y desarrollo empresarial",
