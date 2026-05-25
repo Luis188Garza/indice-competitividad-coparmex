@@ -38,6 +38,20 @@ type AdminDiagnosticRecord = { id: string; companyId: string; companyName: strin
 const diagnosticModules = diagnosticICE.modules.slice().sort((a, b) => a.order - b.order);
 const diagnosticQuestions = diagnosticModules.flatMap((module) => module.questions.slice().sort((a, b) => a.order - b.order));
 
+const demoFolioCompany = {
+  id: "1234",
+  folio: "1234",
+  name: "Empresa de Demostración COPARMEX",
+  rfc: "EDC260101ABC",
+  representative: "Luis Garza",
+  email: "empresa.demo@coparmexnld.org.mx",
+  phone: "8671234567",
+  sector: "Administración y desarrollo empresarial",
+  city: "Nuevo Laredo",
+  state: "Tamaulipas",
+  comments: "Registro local de demostración para validar el flujo de solicitud de acceso.",
+};
+
 function readHashRoute(): AppRoute {
   const path = typeof window === "undefined" ? "/" : window.location.hash.replace(/^#/, "") || "/";
   const companyRoute = path.match(/^\/empresa\/(dashboard|autodiagnostico|resultado|recomendaciones|observaciones|perfil)$/);
@@ -858,6 +872,25 @@ function AccessRequestScreen({ onBack }: { onBack: () => void }) {
       return;
     }
 
+    if (normalizedFolio === demoFolioCompany.folio) {
+      setForm((current) => ({
+        ...current,
+        folio: demoFolioCompany.folio,
+        companyName: demoFolioCompany.name,
+        contactName: demoFolioCompany.representative,
+        email: demoFolioCompany.email,
+        phone: demoFolioCompany.phone,
+        rfc: demoFolioCompany.rfc,
+        sector: demoFolioCompany.sector,
+        city: demoFolioCompany.city,
+        state: demoFolioCompany.state,
+        comments: demoFolioCompany.comments,
+        companyRecordId: demoFolioCompany.id,
+      }));
+      setLookupMessage("Empresa encontrada. Revisa los datos y captura tu contraseña.");
+      return;
+    }
+
     setLookupLoading(true);
     try {
       const company = await getCompanyByFolio(normalizedFolio);
@@ -917,7 +950,7 @@ function AccessRequestScreen({ onBack }: { onBack: () => void }) {
       const credential = await registerWithEmail(form.email.trim(), form.password);
       const normalizedFolio = form.folio.trim().toUpperCase();
       const companyId = form.companyRecordId || normalizedFolio || credential.user.uid;
-      await updateCompany(companyId, {
+      const companyPayload = {
         id: companyId,
         folio: normalizedFolio,
         name: form.companyName,
@@ -936,7 +969,12 @@ function AccessRequestScreen({ onBack }: { onBack: () => void }) {
         interestedInAdvisory: false,
         mustChangePassword: false,
         authUid: credential.user.uid,
-      });
+      };
+      if (normalizedFolio === demoFolioCompany.folio) {
+        await createCompany(companyPayload);
+      } else {
+        await updateCompany(companyId, companyPayload);
+      }
       const requestId = await saveAccessRequest({
         folio: normalizedFolio,
         companyName: form.companyName,
