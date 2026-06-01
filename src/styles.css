@@ -377,6 +377,91 @@ main { min-height: calc(100vh - 74px); }
   align-items: flex-start;
   text-align: left;
 }
+.response-bank {
+  display: grid;
+  gap: 18px;
+  margin: 20px 0;
+}
+.area-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.response-bank-intro {
+  margin: 4px 0 16px;
+  color: var(--muted);
+}
+.area-summary-grid div {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fbff;
+}
+.area-summary-grid strong,
+.response-detail strong {
+  color: var(--navy);
+}
+.area-summary-grid span {
+  color: var(--muted);
+  font-weight: 700;
+}
+.response-detail {
+  display: grid;
+  gap: 14px;
+}
+.response-detail.priority {
+  border-left: 5px solid var(--orange);
+}
+.response-detail h3,
+.response-detail p {
+  margin: 0;
+}
+.response-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.response-detail-grid div {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+}
+.response-detail-grid ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--text);
+}
+.response-detail-grid li {
+  margin: 6px 0;
+}
+.attention-item {
+  display: grid;
+  gap: 6px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+.attention-item:first-of-type {
+  border-top: 0;
+}
+.attention-item p,
+.attention-item span,
+.institutional-note {
+  color: var(--muted);
+}
+.attention-item.strong {
+  color: var(--green);
+}
+.institutional-note {
+  margin: 0;
+  padding: 12px 14px;
+  border-left: 4px solid var(--blue);
+  background: #f8fbff;
+  border-radius: 8px;
+  font-weight: 700;
+}
 .notice {
   display: flex;
   gap: 10px;
@@ -912,7 +997,7 @@ main { min-height: calc(100vh - 74px); }
   .section-title-row { align-items: stretch; flex-direction: column; }
   .section-title-row .primary { width: 100%; margin-top: 0; }
   .access-credential { grid-template-columns: 1fr; gap: 2px; }
-  .hero-grid, .form-grid, .kpi-grid, .document-grid, .role-grid, .action-cards, .segmented, .access-grid, .request-grid, .report-grid, .config-grid, .confirm-grid { grid-template-columns: 1fr; }
+  .hero-grid, .form-grid, .kpi-grid, .document-grid, .role-grid, .action-cards, .segmented, .access-grid, .request-grid, .report-grid, .config-grid, .confirm-grid, .area-summary-grid, .response-detail-grid { grid-template-columns: 1fr; }
   .split-title, .result-header { align-items: stretch; flex-direction: column; }
   .progress-ring { width: 112px; height: 112px; }
   .score-card { min-width: 0; }

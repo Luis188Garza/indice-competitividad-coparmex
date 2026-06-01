@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { diagnosticICE } from "./data/diagnosticICE";
+import { diagnosticResponseBank } from "./data/diagnosticResponseBank";
 import { activityLog, companies, diagnostics, documents, observations, roles } from "./data/mockData";
 import { CompanyProfile, DiagnosticResult, SelectedDiagnosticOption } from "./types";
 import { changeCurrentUserPassword, loginWithEmail, listenAuthState, logout as firebaseLogout, registerWithEmail, sendRecoveryEmail } from "./services/authService";
@@ -72,12 +73,13 @@ function readHashRoute(): AppRoute {
   const path = typeof window === "undefined" ? "/" : window.location.hash.replace(/^#/, "") || "/";
   const companyRoute = path.match(/^\/empresa\/(dashboard|autodiagnostico|resultado|recomendaciones|observaciones|perfil)$/);
   if (companyRoute) return { view: "company", companyTab: companyRoute[1] as CompanyTab, privateRole: "empresa" };
+  const adminRoute = path.match(/^\/admin\/(empresas|estadisticas|observaciones|reportes|configuracion)$/);
+  if (adminRoute) return { view: "admin", adminTab: adminRoute[1] as AdminTab, privateRole: "admin" };
 
   if (path === "/obtener-acceso" || path === "/solicitar-acceso") return { view: "requestAccess" };
   if (path === "/login") return { view: "login" };
   if (path === "/admin") return { view: "admin", adminTab: "panel", privateRole: "admin" };
   if (path === "/admin/solicitudes") return { view: "admin", adminTab: "solicitudes", privateRole: "admin" };
-  if (path === "/admin/empresas") return { view: "admin", adminTab: "empresas", privateRole: "admin" };
   return { view: "landing" };
 }
 
@@ -88,8 +90,7 @@ function getHashForState(view: View, companyTab: CompanyTab, adminTab: AdminTab)
   if (view === "result") return "#/empresa/resultado";
   if (view === "company") return `#/empresa/${companyTab === "documentacion" ? "dashboard" : companyTab}`;
   if (view === "admin") {
-    if (adminTab === "solicitudes" || adminTab === "empresas") return `#/admin/${adminTab}`;
-    return "#/admin";
+    return adminTab === "panel" ? "#/admin" : `#/admin/${adminTab}`;
   }
   return "";
 }
@@ -564,6 +565,17 @@ function App() {
     setView("questionnaire");
   };
 
+  const cancelDiagnostic = () => {
+    window.localStorage.removeItem(getAnswerStorageKey(activeCompany.id));
+    skipNextAnswerSave.current = true;
+    setAnswers({});
+    setCurrentModule(0);
+    setResult(null);
+    setSaveState({ loading: false, error: "", success: "" });
+    setCompanyTab("dashboard");
+    setView("company");
+  };
+
   const logout = () => {
     if (session.role === "empresa") {
       void firebaseLogout();
@@ -689,6 +701,7 @@ function App() {
             currentQuestions={currentQuestions}
             progress={progress}
             onComplete={completeDiagnostic}
+            onCancel={cancelDiagnostic}
           />
         )}
         {authReady && !requiresPasswordChange && view === "result" && result && (
@@ -740,7 +753,7 @@ function MobileDrawerContent(props: {
   logout: () => void;
 }) {
   const companyTabs: CompanyTab[] = ["dashboard", "autodiagnostico", "resultado", "recomendaciones", "observaciones", "perfil"];
-  const adminTabs: AdminTab[] = ["panel", "empresas", "diagnosticos", "estadisticas", "observaciones", "reportes", "configuracion"];
+  const adminTabs: AdminTab[] = ["panel", "empresas", "estadisticas", "observaciones", "reportes", "configuracion"];
   const go = (view: View) => {
     props.setView(view);
     props.close();
@@ -897,6 +910,8 @@ function AccessRequestScreen({ onBack, onLogin }: { onBack: () => void; onLogin:
   const [verifiedRawCompany, setVerifiedRawCompany] = useState<Record<string, any> | null>(null);
   const [loading, setLoading] = useState(false);
   const [verifying, setVerifying] = useState(false);
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
+  const [recoveryLoading, setRecoveryLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [accountExists, setAccountExists] = useState(false);
@@ -1058,6 +1073,29 @@ function AccessRequestScreen({ onBack, onLogin }: { onBack: () => void; onLogin:
     }
   };
 
+  const recoverPassword = async () => {
+    setError("");
+    setSuccess("");
+    const emailToRecover = normalizeEmail(form.email);
+    if (!emailToRecover || !isValidEmail(emailToRecover)) {
+      setError("Captura un correo válido para recuperar tu contraseña.");
+      return;
+    }
+
+    setRecoveryLoading(true);
+    try {
+      await sendRecoveryEmail(emailToRecover);
+      setSuccess("Si el correo está registrado, recibirás instrucciones para restablecer tu contraseña.");
+      setRecoveryOpen(false);
+    } catch (err) {
+      console.error("Password recovery failed", err);
+      setSuccess("Si el correo está registrado, recibirás instrucciones para restablecer tu contraseña.");
+      setRecoveryOpen(false);
+    } finally {
+      setRecoveryLoading(false);
+    }
+  };
+
   return (
     <section className="page narrow">
       <SectionTitle title="Obtener acceso" subtitle="Verifica tu empresa con el folio COPARMEX y el correo registrado para crear tu acceso a la plataforma." />
@@ -1097,8 +1135,14 @@ function AccessRequestScreen({ onBack, onLogin }: { onBack: () => void; onLogin:
             <p>Inicia sesión o recupera tu contraseña para ingresar al portal empresa.</p>
             <div className="actions-row">
               <button className="primary" onClick={onLogin}>Iniciar sesión</button>
-              <button className="secondary" onClick={onLogin}>Olvidé mi contraseña</button>
+              <button className="secondary" onClick={() => setRecoveryOpen((current) => !current)}>Olvidé mi contraseña</button>
             </div>
+            {recoveryOpen && (
+              <div className="recovery-panel">
+                <Field label="Correo registrado" value={form.email} onChange={(value) => update("email", value)} transform="none" type="email" />
+                <button className="primary" onClick={recoverPassword} disabled={recoveryLoading}>{recoveryLoading ? "Enviando..." : "Enviar instrucciones"}</button>
+              </div>
+            )}
           </div>
         )}
 
@@ -1122,7 +1166,7 @@ function AccessRequestScreen({ onBack, onLogin }: { onBack: () => void; onLogin:
 
         {error && <p className="form-error">{error}</p>}
         {success && <p className="save-status success">{success}</p>}
-        <div className="notice"><ShieldCheck size={18} /> El acceso se crea ?nicamente si el folio y el correo registrado coinciden con la informaci?n autorizada por COPARMEX Nuevo Laredo.</div>
+        <div className="notice"><ShieldCheck size={18} /> El acceso se crea únicamente si el folio y el correo registrado coinciden con la información autorizada por COPARMEX Nuevo Laredo.</div>
         <div className="actions-row">
           <button className="secondary" onClick={onBack}>Volver al inicio</button>
         </div>
@@ -1250,7 +1294,7 @@ function CompanyLogin({ onLogin }: { onLogin: (email: string, password: string) 
         <button className="secondary" onClick={() => { setRecoveryOpen((current) => !current); setRecoveryEmail(email); }}>Olvidé mi contraseña</button>
         {recoveryOpen && (
           <div className="recovery-panel">
-            <Field label="Correo para recuperación" value={recoveryEmail} onChange={setRecoveryEmail} transform="none" type="email" />
+            <Field label="Correo registrado" value={recoveryEmail} onChange={setRecoveryEmail} transform="none" type="email" />
             <button className="primary" onClick={recoverPassword} disabled={recoveryLoading}>{recoveryLoading ? "Enviando..." : "Enviar instrucciones"}</button>
           </div>
         )}
@@ -1304,6 +1348,7 @@ function Questionnaire(props: {
   currentQuestions: typeof diagnosticQuestions;
   progress: number;
   onComplete: () => void;
+  onCancel: () => void;
 }) {
   const module = diagnosticModules[props.currentModule];
   const canAdvance = props.currentQuestions.every((question) => props.answers[question.id] !== undefined);
@@ -1336,6 +1381,7 @@ function Questionnaire(props: {
         ))}
       </div>
       <div className="actions-row">
+        <button className="secondary" onClick={props.onCancel}>Cancelar diagnóstico</button>
         <button className="secondary" disabled={props.currentModule === 0} onClick={() => props.setCurrentModule(props.currentModule - 1)}>Anterior</button>
         {props.currentModule < diagnosticModules.length - 1 ? (
           <button className="primary" disabled={!canAdvance} onClick={() => props.setCurrentModule(props.currentModule + 1)}>Siguiente sección</button>
@@ -1359,17 +1405,8 @@ function ResultScreen({ company, result, saveState, onPdf, onPortal }: { company
         </div>
       )}
       <ModuleBars scores={result.moduleScores} />
-      <TwoColumns
-        left={<InsightList title="Principales hallazgos" items={result.findings} />}
-        right={<InsightList title="Recomendaciones prioritarias" items={result.recommendations} />}
-      />
-      <div className="action-cards">
-        <button className="post-action-button"><FileText size={20} /><strong>Solicitar revisión documental</strong><span>Enviar expediente a validación institucional.</span></button>
-        <button className="post-action-button"><UserRoundCheck size={20} /><strong>Agendar asesoría especializada</strong><span>Canalizar seguimiento con un asesor autorizado.</span></button>
-        <button className="post-action-button"><ShieldCheck size={20} /><strong>Autorizar seguimiento COPARMEX</strong><span>Permitir contacto institucional posterior.</span></button>
-      </div>
+      <ResponseBankInsights result={result} detail={false} />
       <div className="actions-row">
-        <button className="secondary" onClick={onPdf}><Download size={18} /> Descargar reporte PDF</button>
         <button className="primary" onClick={onPortal}>Volver al dashboard</button>
       </div>
     </section>
@@ -1385,7 +1422,7 @@ function CompanyPortal({ tab, setTab, company, result, loadingResult, resultErro
         {tab === "dashboard" && <CompanyDashboard company={company} result={result} loadingResult={loadingResult} resultError={resultError} onStart={onStart} onResults={() => setTab("resultado")} />}
         {tab === "autodiagnostico" && <PrepPanel onStart={onStart} />}
         {tab === "resultado" && (result ? <ResultScreen company={company} result={result} saveState={{ loading: false, error: "", success: "" }} onPdf={onPdf} onPortal={() => setTab("dashboard")} /> : <EmptyDiagnosticState company={company} onStart={onStart} loading={loadingResult} error={resultError} />)}
-        {tab === "recomendaciones" && (result ? <InsightList title="Plan de acción recomendado" items={result.recommendations} /> : <EmptyDiagnosticState company={company} onStart={onStart} loading={loadingResult} error={resultError} />)}
+        {tab === "recomendaciones" && (result ? <ResponseBankInsights result={result} title="Recomendaciones ICE" description="Detalle de hallazgos, riesgos, recomendaciones y posibles líneas de apoyo según el resultado del diagnóstico." /> : <EmptyDiagnosticState company={company} onStart={onStart} loading={loadingResult} error={resultError} />)}
         {tab === "observaciones" && <ObservationList companyId={company.id} companyName={company.name} authorRole="company" authorName={company.name} />}
         {tab === "perfil" && <ProfileCard company={company} result={result} />}
         {tab === "documentacion" && <DocumentsPanel companyId={company.id} />}
@@ -1395,7 +1432,7 @@ function CompanyPortal({ tab, setTab, company, result, loadingResult, resultErro
 }
 
 function AdminPortal(props: { tab: AdminTab; setTab: (tab: AdminTab) => void; stats: any; selectedCompanyId: string; setSelectedCompanyId: (id: string) => void; setSelectedAdminCompany: (company: AdminCompany | null) => void; setView: (view: View) => void; onPdf: () => void; diagnostics: AdminDiagnosticRecord[]; diagnosticsLoading: boolean; diagnosticsError: string }) {
-  const tabs: AdminTab[] = ["panel", "empresas", "diagnosticos", "estadisticas", "observaciones", "reportes", "configuracion"];
+  const tabs: AdminTab[] = ["panel", "empresas", "estadisticas", "observaciones", "reportes", "configuracion"];
   return (
     <section className="portal">
       <Sidebar title="Panel administrativo" items={tabs} active={props.tab} onSelect={props.setTab} />
@@ -1403,7 +1440,6 @@ function AdminPortal(props: { tab: AdminTab; setTab: (tab: AdminTab) => void; st
         {props.tab === "panel" && <AdminDashboard stats={props.stats} />}
         {props.tab === "empresas" && <CompaniesTable diagnostics={props.diagnostics} setSelectedCompanyId={props.setSelectedCompanyId} setSelectedAdminCompany={props.setSelectedAdminCompany} setView={props.setView} onPdf={props.onPdf} />}
         {props.tab === "solicitudes" && <AccessRequestsPanel />}
-        {props.tab === "diagnosticos" && <DiagnosticsPanel diagnostics={props.diagnostics} loading={props.diagnosticsLoading} error={props.diagnosticsError} />}
         {props.tab === "estadisticas" && <RegionalStats stats={props.stats} compact />}
         {props.tab === "observaciones" && <AllObservations />}
         {props.tab === "reportes" && <ReportsPanel onPdf={props.onPdf} />}
@@ -1668,13 +1704,34 @@ function CompanyDashboard({ company, result, loadingResult, resultError, onStart
         <Kpi icon={<ShieldCheck />} label="Semáforo" value={trafficLabel(result.maturity.trafficLight)} />
         <Kpi icon={<FileText />} label="Observaciones nuevas" value={observations.filter((obs) => obs.companyId === company.id).length} />
       </div>
-      <TwoColumns left={<ModuleBars scores={result.moduleScores} />} right={<InsightList title="Acciones recomendadas" items={result.recommendations.slice(0, 4)} />} />
+      <TwoColumns left={<ModuleBars scores={result.moduleScores} />} right={<DashboardRecommendationSummary result={result} />} />
       <div className="actions-row">
         <button className="primary" onClick={onResults}>Ver resultados</button>
         <button className="secondary" onClick={onStart}>Realizar nuevo diagnóstico</button>
       </div>
     </>
   );
+}
+
+function DashboardRecommendationSummary({ result }: { result: DiagnosticResult }) {
+  const sortedScores = [...result.moduleScores].sort((a, b) => a.percentage - b.percentage);
+  const priorityScores = sortedScores.filter((score) => score.percentage < 50);
+  const attentionScores = sortedScores.filter((score) => score.percentage >= 50 && score.percentage < 80);
+  const focusScores = (priorityScores.length ? priorityScores : attentionScores).slice(0, 2);
+  const items = focusScores.map((score) => {
+    const prefix = score.percentage < 50 ? "Atender" : "Fortalecer";
+    return `${prefix} ${score.title.toLowerCase()} (${score.percentage}%) con revisión documental y seguimiento.`;
+  });
+
+  if (priorityScores.length > 2) {
+    items.push(`Dar seguimiento a ${priorityScores.length} áreas prioritarias en la sección Recomendaciones.`);
+  } else if (!items.length) {
+    items.push("Mantener evidencia corporativa actualizada y revisar periódicamente el índice.");
+  } else {
+    items.push("Consulta Recomendaciones para ver el detalle ejecutivo por módulo.");
+  }
+
+  return <InsightList title="Acciones recomendadas" items={items.slice(0, 3)} />;
 }
 
 function EmptyDiagnosticState({ company, onStart, loading, error }: { company: CompanyProfile; onStart: () => void; loading: boolean; error: string }) {
@@ -2007,7 +2064,6 @@ function ActionMenu({ companyId, openMenu, setOpenMenu, onDetail, onReport, onOb
       {isOpen && (
         <div className="action-menu">
           <button onClick={onDetail}><Eye size={15} /> Ver detalle</button>
-          <button onClick={onReport}><FileText size={15} /> Descargar reporte</button>
           <button onClick={onObservation}><MessageSquarePlus size={15} /> Agregar observación</button>
         </div>
       )}
@@ -2020,11 +2076,11 @@ function CompanyDetail({ company, result, onBack, onPdf }: { company: CompanyPro
     <section className="page">
       <button className="back-link" onClick={onBack}>← Volver a empresas</button>
       {result ? <ResultHeader company={company} result={result} /> : <SectionTitle title={company.name} subtitle="Esta empresa aún no tiene un diagnóstico guardado." />}
-      <TwoColumns left={<ProfileCard company={company} result={result} />} right={result ? <InsightList title="Recomendaciones generadas" items={result.recommendations} /> : <div className="card prepared"><ClipboardList size={30} /><h2>Diagnóstico pendiente</h2><p>Los resultados y recomendaciones aparecerán cuando la empresa complete su autodiagnóstico.</p></div>} />
+      {result ? <ProfileCard company={company} result={result} /> : <div className="card prepared"><ClipboardList size={30} /><h2>Diagnóstico pendiente</h2><p>Los resultados y recomendaciones aparecerán cuando la empresa complete su autodiagnóstico.</p></div>}
       {result && <ModuleBars scores={result.moduleScores} />}
+      {result && <ResponseBankInsights result={result} title="Lectura institucional ICE" description="Esta lectura permite identificar áreas críticas, riesgos y posibles líneas de seguimiento para la empresa." />}
       <TwoColumns left={<ObservationList companyId={company.id} companyName={company.name} authorRole="admin" authorName="Administrador COPARMEX" />} right={<ActivityPanel companyId={company.id} />} />
       <DocumentsPanel companyId={company.id} />
-      <button className="secondary" onClick={onPdf}><Download size={18} /> Descargar reporte</button>
     </section>
   );
 }
@@ -2074,6 +2130,96 @@ function ModuleBars({ scores }: { scores: DiagnosticResult["moduleScores"] }) {
           <div className="bar"><i style={{ width: `${score.percentage}%` }} /></div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function ResponseBankInsights({ result, title = "Lectura ICE por áreas", description, detail = true }: { result: DiagnosticResult; title?: string; description?: string; detail?: boolean }) {
+  const scoresWithBank = result.moduleScores.map((score) => ({
+    score,
+    bank: diagnosticResponseBank.find((item) => item.moduleId === score.moduleId),
+  }));
+  const strongAreas = scoresWithBank.filter((item) => item.score.percentage >= 80);
+  const attentionAreas = scoresWithBank.filter((item) => item.score.percentage >= 50 && item.score.percentage < 80);
+  const priorityAreas = scoresWithBank.filter((item) => item.score.percentage < 50);
+
+  return (
+    <div className="response-bank">
+      <div className="card">
+        <h3>{title}</h3>
+        {description && <p className="response-bank-intro">{description}</p>}
+        <div className="area-summary-grid">
+          <div>
+            <strong>Áreas fuertes</strong>
+            {strongAreas.length ? strongAreas.map(({ score }) => <span key={score.moduleId}>{score.title} ({score.percentage}%)</span>) : <span>Sin módulos por encima de 80%.</span>}
+          </div>
+          <div>
+            <strong>Áreas de atención</strong>
+            {attentionAreas.length ? attentionAreas.map(({ score }) => <span key={score.moduleId}>{score.title} ({score.percentage}%)</span>) : <span>Sin módulos en rango de atención.</span>}
+          </div>
+          <div>
+            <strong>Áreas prioritarias</strong>
+            {priorityAreas.length ? priorityAreas.map(({ score }) => <span key={score.moduleId}>{score.title} ({score.percentage}%)</span>) : <span>Sin módulos críticos detectados.</span>}
+          </div>
+        </div>
+      </div>
+
+      {!detail && <p className="institutional-note">COPARMEX podrá vincularte con opciones de apoyo empresarial conforme a la disponibilidad de su red de afiliados.</p>}
+
+      {detail && priorityAreas.map(({ score, bank }) => bank && (
+        <div className="card response-detail priority" key={score.moduleId}>
+          <span className="eyebrow">Área prioritaria - {score.percentage}%</span>
+          <h3>{bank.title}</h3>
+          <p>{bank.summary}</p>
+          <div className="response-detail-grid">
+            <ResponseDetailBlock title="Hallazgo" items={bank.findings} />
+            <ResponseDetailBlock title="Implicación empresarial" items={bank.businessImplications} />
+            <ResponseDetailBlock title="Riesgo / compliance" items={bank.risks} />
+            <ResponseDetailBlock title="Recomendación profunda ICE" items={bank.recommendations} />
+            <ResponseDetailBlock title="Servicios sugeridos" items={bank.suggestedServices} />
+            <ResponseDetailBlock title="Tipos de apoyo que podrían ayudar" items={bank.suggestedProviderTypes} />
+            <ResponseDetailBlock title="Marco normativo relacionado" items={bank.legalFramework} />
+          </div>
+        </div>
+      ))}
+
+      {detail && attentionAreas.length > 0 && (
+        <div className="card response-detail">
+          <h3>Áreas de atención</h3>
+          {attentionAreas.map(({ score, bank }) => bank && (
+            <div className="attention-item" key={score.moduleId}>
+              <strong>{bank.title} ({score.percentage}%)</strong>
+              <p>{bank.findings[0]}</p>
+              <span>{bank.recommendations[0]}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {detail && strongAreas.length > 0 && (
+        <div className="card response-detail">
+          <h3>Áreas fuertes</h3>
+          {strongAreas.map(({ score }) => (
+            <div className="attention-item strong" key={score.moduleId}>
+              <strong>{score.title} ({score.percentage}%)</strong>
+              <span>La empresa presenta un avance favorable en este módulo.</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {detail && <p className="institutional-note">COPARMEX podrá vincularte con opciones de apoyo empresarial conforme a la disponibilidad de su red de afiliados.</p>}
+    </div>
+  );
+}
+
+function ResponseDetailBlock({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div>
+      <strong>{title}</strong>
+      <ul>
+        {items.map((item) => <li key={item}>{item}</li>)}
+      </ul>
     </div>
   );
 }
