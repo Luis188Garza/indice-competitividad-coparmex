@@ -893,19 +893,32 @@ function AccessRequestScreen({ onBack, onLogin }: { onBack: () => void; onLogin:
     privacyAccepted: false,
     termsAccepted: false,
   });
+  const [verifiedCompany, setVerifiedCompany] = useState<ReturnType<typeof mapAuthorizedCompanyForAccess> | null>(null);
+  const [verifiedRawCompany, setVerifiedRawCompany] = useState<Record<string, any> | null>(null);
   const [loading, setLoading] = useState(false);
+  const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [accountExists, setAccountExists] = useState(false);
-  const update = (field: keyof typeof form, value: string | boolean) => setForm((current) => ({ ...current, [field]: value }));
+  const update = (field: keyof typeof form, value: string | boolean) => {
+    setForm((current) => ({ ...current, [field]: value }));
+    if (field === "folio" || field === "email") {
+      setVerifiedCompany(null);
+      setVerifiedRawCompany(null);
+      setAccountExists(false);
+      setSuccess("");
+    }
+  };
 
-  const submit = async () => {
+  const verifyCompany = async () => {
     const normalizedFolio = form.folio.trim().toUpperCase();
     const email = normalizeEmail(form.email);
 
     setError("");
     setSuccess("");
     setAccountExists(false);
+    setVerifiedCompany(null);
+    setVerifiedRawCompany(null);
 
     if (!normalizedFolio) {
       setError("Captura el folio COPARMEX.");
@@ -914,6 +927,66 @@ function AccessRequestScreen({ onBack, onLogin }: { onBack: () => void; onLogin:
 
     if (!email || !isValidEmail(email)) {
       setError("Captura un correo válido.");
+      return;
+    }
+
+    setVerifying(true);
+    try {
+      let rawCompany = await getCompanyByFolio(normalizedFolio);
+      if (!rawCompany && normalizedFolio === demoFolioCompany.folio) rawCompany = demoFolioCompany;
+
+      if (!rawCompany || !isCompanyActiveForAccess(rawCompany as Record<string, any>)) {
+        setError("No encontramos una empresa activa con esos datos. Verifica tu folio y correo registrado o contacta a COPARMEX Nuevo Laredo.");
+        return;
+      }
+
+      const allowedEmails = getAllowedAccessEmails(rawCompany as Record<string, any>);
+      if (!allowedEmails.includes(email)) {
+        setError("No encontramos una empresa activa con esos datos. Verifica tu folio y correo registrado o contacta a COPARMEX Nuevo Laredo.");
+        return;
+      }
+
+      const companyData = mapAuthorizedCompanyForAccess(rawCompany as Record<string, any>);
+      setVerifiedCompany({ ...companyData, email });
+      setVerifiedRawCompany(rawCompany as Record<string, any>);
+      if (hasActiveAccount(rawCompany as Record<string, any>)) {
+        setAccountExists(true);
+        return;
+      }
+
+      setSuccess("Empresa verificada. Confirma los datos y crea tu acceso.");
+    } catch (err) {
+      if (normalizedFolio === demoFolioCompany.folio) {
+        const allowedEmails = getAllowedAccessEmails(demoFolioCompany);
+        if (allowedEmails.includes(email)) {
+          const companyData = mapAuthorizedCompanyForAccess(demoFolioCompany);
+          setVerifiedCompany({ ...companyData, email });
+          setVerifiedRawCompany(demoFolioCompany);
+          setSuccess("Empresa verificada. Confirma los datos y crea tu acceso.");
+          return;
+        }
+      }
+      setError(getFriendlyErrorMessage(err, "No encontramos una empresa activa con esos datos. Verifica tu folio y correo registrado o contacta a COPARMEX Nuevo Laredo."));
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  const submit = async () => {
+    const normalizedFolio = form.folio.trim().toUpperCase();
+    const email = normalizeEmail(form.email);
+
+    setError("");
+    setSuccess("");
+
+    if (!verifiedCompany || !verifiedRawCompany) {
+      setError("Primero verifica tu empresa con folio y correo registrado.");
+      return;
+    }
+
+    if (accountExists || hasActiveAccount(verifiedRawCompany)) {
+      setAccountExists(true);
+      setError("Esta empresa ya tiene una cuenta activa. Inicia sesión o recupera tu contraseña.");
       return;
     }
 
@@ -934,38 +1007,20 @@ function AccessRequestScreen({ onBack, onLogin }: { onBack: () => void; onLogin:
 
     setLoading(true);
     try {
-      const rawCompany = normalizedFolio === demoFolioCompany.folio ? demoFolioCompany : await getCompanyByFolio(normalizedFolio);
-      if (!rawCompany || !isCompanyActiveForAccess(rawCompany as Record<string, any>)) {
-        setError("No encontramos una empresa activa con esos datos. Verifica tu folio y correo registrado o contacta a COPARMEX Nuevo Laredo.");
-        return;
-      }
-
-      const allowedEmails = getAllowedAccessEmails(rawCompany as Record<string, any>);
-      if (!allowedEmails.includes(email)) {
-        setError("No encontramos una empresa activa con esos datos. Verifica tu folio y correo registrado o contacta a COPARMEX Nuevo Laredo.");
-        return;
-      }
-
-      if (hasActiveAccount(rawCompany as Record<string, any>)) {
-        setAccountExists(true);
-        setError("Esta empresa ya tiene una cuenta activa. Inicia sesión o recupera tu contraseña.");
-        return;
-      }
-
       const credential = await registerWithEmail(email, form.password);
-      const companyData = mapAuthorizedCompanyForAccess(rawCompany as Record<string, any>);
-      const companyId = companyData.id || normalizedFolio;
+      const companyId = verifiedCompany.id || normalizedFolio;
+      const allowedEmails = getAllowedAccessEmails(verifiedRawCompany);
       const payload = {
-        ...companyData,
+        ...verifiedCompany,
         id: companyId,
         folio: normalizedFolio,
         email,
-        primaryContactEmail: normalizeEmail((rawCompany as Record<string, any>).primaryContactEmail || email),
-        primaryContactName: toUpperText((rawCompany as Record<string, any>).primaryContactName || companyData.representative),
-        primaryContactPhone: normalizePhone((rawCompany as Record<string, any>).primaryContactPhone || companyData.phone),
-        secondaryContactEmail: normalizeEmail((rawCompany as Record<string, any>).secondaryContactEmail),
-        secondaryContactName: toUpperText((rawCompany as Record<string, any>).secondaryContactName),
-        secondaryContactPhone: normalizePhone((rawCompany as Record<string, any>).secondaryContactPhone),
+        primaryContactEmail: normalizeEmail(verifiedRawCompany.primaryContactEmail || email),
+        primaryContactName: toUpperText(verifiedRawCompany.primaryContactName || verifiedCompany.representative),
+        primaryContactPhone: normalizePhone(verifiedRawCompany.primaryContactPhone || verifiedCompany.phone),
+        secondaryContactEmail: normalizeEmail(verifiedRawCompany.secondaryContactEmail),
+        secondaryContactName: toUpperText(verifiedRawCompany.secondaryContactName),
+        secondaryContactPhone: normalizePhone(verifiedRawCompany.secondaryContactPhone),
         allowedAccessEmails: allowedEmails,
         role: "company",
         status: "Activa",
@@ -983,7 +1038,7 @@ function AccessRequestScreen({ onBack, onLogin }: { onBack: () => void; onLogin:
         termsVersion: "2026-05",
       };
 
-      if (normalizedFolio === demoFolioCompany.folio) {
+      if (companyId === demoFolioCompany.id && verifiedRawCompany === demoFolioCompany) {
         await createCompany(payload);
       } else {
         await updateCompany(companyId, payload);
@@ -991,6 +1046,8 @@ function AccessRequestScreen({ onBack, onLogin }: { onBack: () => void; onLogin:
 
       setSuccess("Tu acceso fue creado correctamente. Ya puedes iniciar sesión.");
       setForm({ folio: "", email: "", password: "", confirmPassword: "", privacyAccepted: false, termsAccepted: false });
+      setVerifiedCompany(null);
+      setVerifiedRawCompany(null);
       await firebaseLogout();
     } catch (err) {
       const message = getFriendlyErrorMessage(err, "No pudimos crear el acceso. Verifica tus datos e intenta nuevamente.");
@@ -1003,32 +1060,70 @@ function AccessRequestScreen({ onBack, onLogin }: { onBack: () => void; onLogin:
 
   return (
     <section className="page narrow">
-      <SectionTitle title="Obtener acceso" subtitle="Crea tu acceso si tu folio y correo coinciden con una empresa previamente registrada por COPARMEX Nuevo Laredo." />
-      <div className="login-card">
-        <Field label="Folio COPARMEX" value={form.folio} onChange={(value) => update("folio", value)} />
-        <Field label="Correo registrado" value={form.email} onChange={(value) => update("email", value)} transform="none" type="email" />
-        <PasswordField label="Nueva contraseña" value={form.password} onChange={(value) => update("password", value)} />
-        <PasswordField label="Confirmar contraseña" value={form.confirmPassword} onChange={(value) => update("confirmPassword", value)} />
-        <p className="field-hint">La contraseña debe tener al menos 8 caracteres.</p>
-        <label className="check-row">
-          <input type="checkbox" checked={form.privacyAccepted} onChange={(event) => update("privacyAccepted", event.target.checked)} />
-          <span>He leído y acepto el <button type="button" className="inline-link">Aviso de Privacidad</button>.</span>
-        </label>
-        <label className="check-row">
-          <input type="checkbox" checked={form.termsAccepted} onChange={(event) => update("termsAccepted", event.target.checked)} />
-          <span>Acepto los <button type="button" className="inline-link">Términos y Condiciones</button> de uso de la plataforma.</span>
-        </label>
-        {error && <p className="form-error">{error}</p>}
-        {success && <p className="save-status success">{success}</p>}
-        {accountExists && (
-          <div className="actions-row">
-            <button className="primary" onClick={onLogin}>Iniciar sesión</button>
-            <button className="secondary" onClick={onLogin}>Olvidé mi contraseña</button>
+      <SectionTitle title="Obtener acceso" subtitle="Verifica tu empresa con el folio COPARMEX y el correo registrado para crear tu acceso a la plataforma." />
+      <div className="login-card access-flow-card">
+        <div className="access-step">
+          <h3>Verifica tu empresa</h3>
+          <Field label="Folio COPARMEX" value={form.folio} onChange={(value) => update("folio", value)} />
+          <Field label="Correo registrado" value={form.email} onChange={(value) => update("email", value)} transform="none" type="email" />
+          <button className="primary" onClick={verifyCompany} disabled={verifying}>{verifying ? "Verificando..." : "Verificar empresa"}</button>
+        </div>
+
+        {verifiedCompany && (
+          <div className="company-confirm-card">
+            <div>
+              <span className="eyebrow">Empresa encontrada</span>
+              <h3>{verifiedCompany.name}</h3>
+              <p>Confirma que los datos corresponden a tu empresa antes de crear tu acceso.</p>
+            </div>
+            <div className="confirm-grid">
+              <p><span>Nombre de empresa</span><strong>{verifiedCompany.name || "No disponible"}</strong></p>
+              <p><span>RFC</span><strong>{verifiedCompany.rfc || "No disponible"}</strong></p>
+              <p><span>Folio COPARMEX</span><strong>{verifiedCompany.folio}</strong></p>
+              <p><span>Representante o contacto principal</span><strong>{verifiedCompany.representative || "No disponible"}</strong></p>
+              <p><span>Correo registrado</span><strong>{verifiedCompany.email}</strong></p>
+              <p><span>Teléfono</span><strong>{verifiedCompany.phone || "No disponible"}</strong></p>
+              <p><span>Sector</span><strong>{verifiedCompany.sector || "No disponible"}</strong></p>
+              <p><span>Ciudad</span><strong>{verifiedCompany.city || "No disponible"}</strong></p>
+              <p><span>Estado</span><strong>{verifiedCompany.state || "No disponible"}</strong></p>
+            </div>
           </div>
         )}
-        <div className="notice"><ShieldCheck size={18} /> El acceso se crea únicamente si el folio y el correo registrado coinciden con la información autorizada por COPARMEX Nuevo Laredo.</div>
+
+        {verifiedCompany && accountExists && (
+          <div className="card prepared existing-account-card">
+            <ShieldCheck size={30} />
+            <h3>Esta empresa ya tiene una cuenta activa.</h3>
+            <p>Inicia sesión o recupera tu contraseña para ingresar al portal empresa.</p>
+            <div className="actions-row">
+              <button className="primary" onClick={onLogin}>Iniciar sesión</button>
+              <button className="secondary" onClick={onLogin}>Olvidé mi contraseña</button>
+            </div>
+          </div>
+        )}
+
+        {verifiedCompany && !accountExists && (
+          <div className="access-step">
+            <h3>Crea tu acceso</h3>
+            <PasswordField label="Nueva contraseña" value={form.password} onChange={(value) => update("password", value)} />
+            <PasswordField label="Confirmar contraseña" value={form.confirmPassword} onChange={(value) => update("confirmPassword", value)} />
+            <p className="field-hint">La contraseña debe tener al menos 8 caracteres.</p>
+            <label className="check-row">
+              <input type="checkbox" checked={form.privacyAccepted} onChange={(event) => update("privacyAccepted", event.target.checked)} />
+              <span>He leído y acepto el <button type="button" className="inline-link">Aviso de Privacidad</button>.</span>
+            </label>
+            <label className="check-row">
+              <input type="checkbox" checked={form.termsAccepted} onChange={(event) => update("termsAccepted", event.target.checked)} />
+              <span>Acepto los <button type="button" className="inline-link">Términos y Condiciones</button> de uso de la plataforma.</span>
+            </label>
+            <button className="primary" onClick={submit} disabled={loading}>{loading ? "Creando acceso..." : "Crear acceso"}</button>
+          </div>
+        )}
+
+        {error && <p className="form-error">{error}</p>}
+        {success && <p className="save-status success">{success}</p>}
+        <div className="notice"><ShieldCheck size={18} /> El acceso se crea ?nicamente si el folio y el correo registrado coinciden con la informaci?n autorizada por COPARMEX Nuevo Laredo.</div>
         <div className="actions-row">
-          <button className="primary" onClick={submit} disabled={loading}>{loading ? "Creando acceso..." : "Crear acceso"}</button>
           <button className="secondary" onClick={onBack}>Volver al inicio</button>
         </div>
       </div>
