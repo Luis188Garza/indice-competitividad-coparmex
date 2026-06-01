@@ -19,7 +19,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { diagnosticICE } from "./data/diagnosticICE";
 import { activityLog, companies, diagnostics, documents, observations, roles } from "./data/mockData";
 import { CompanyProfile, DiagnosticResult, SelectedDiagnosticOption } from "./types";
-import { changeCurrentUserPassword, loginWithEmail, listenAuthState, logout as firebaseLogout, registerWithEmail } from "./services/authService";
+import { changeCurrentUserPassword, loginWithEmail, listenAuthState, logout as firebaseLogout, registerWithEmail, sendRecoveryEmail } from "./services/authService";
 import { createCompany, getCompanyByAuthUid, getCompanyByFolio, listCompanies, updateCompany } from "./services/companiesService";
 import { listAccessRequests, saveAccessRequest, updateAccessRequestStatus, type AccessRequestRecord } from "./services/accessRequestsService";
 import { getResponsesByCompany, listDiagnosticResponses, saveDiagnosticResponse } from "./services/diagnosticResponsesService";
@@ -38,6 +38,12 @@ type AdminDiagnosticRecord = { id: string; companyId: string; companyName: strin
 const diagnosticModules = diagnosticICE.modules.slice().sort((a, b) => a.order - b.order);
 const diagnosticQuestions = diagnosticModules.flatMap((module) => module.questions.slice().sort((a, b) => a.order - b.order));
 const toUpperText = (value: unknown) => String(value || "").toLocaleUpperCase("es-MX");
+const normalizeEmail = (value: unknown) => String(value || "").trim().toLowerCase();
+const normalizePhone = (value: unknown) => String(value || "").replace(/\D/g, "").slice(0, 10);
+const normalizeRfcMoral = (value: unknown) => toUpperText(value).replace(/[^A-Z0-9Ñ&]/g, "").slice(0, 12);
+const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+const isValidRfcMoral = (value: string) => /^[A-ZÑ&]{3}\d{6}[A-Z0-9]{3}$/.test(value.trim().toLocaleUpperCase("es-MX"));
+const hasActiveAccount = (company: Record<string, any>) => Boolean(company.accountCreated || company.authUid || String(company.accessStatus || "").toLowerCase() === "active");
 
 const demoFolioCompany = {
   id: "1234",
@@ -47,6 +53,15 @@ const demoFolioCompany = {
   representative: "ANDREA VILLARREAL",
   email: "empresa.demo@coparmexnld.org.mx",
   phone: "8671234567",
+  primaryContactName: "ANDREA VILLARREAL",
+  primaryContactEmail: "empresa.demo@coparmexnld.org.mx",
+  primaryContactPhone: "8671234567",
+  secondaryContactName: "MARIANA GARZA",
+  secondaryContactEmail: "contacto.demo@coparmexnld.org.mx",
+  secondaryContactPhone: "8677654321",
+  allowedAccessEmails: ["empresa.demo@coparmexnld.org.mx", "contacto.demo@coparmexnld.org.mx"],
+  accountCreated: false,
+  accessStatus: "available",
   sector: "Administración y desarrollo empresarial",
   city: "NUEVO LAREDO",
   state: "Tamaulipas",
@@ -58,7 +73,7 @@ function readHashRoute(): AppRoute {
   const companyRoute = path.match(/^\/empresa\/(dashboard|autodiagnostico|resultado|recomendaciones|observaciones|perfil)$/);
   if (companyRoute) return { view: "company", companyTab: companyRoute[1] as CompanyTab, privateRole: "empresa" };
 
-  if (path === "/solicitar-acceso") return { view: "requestAccess" };
+  if (path === "/obtener-acceso" || path === "/solicitar-acceso") return { view: "requestAccess" };
   if (path === "/login") return { view: "login" };
   if (path === "/admin") return { view: "admin", adminTab: "panel", privateRole: "admin" };
   if (path === "/admin/solicitudes") return { view: "admin", adminTab: "solicitudes", privateRole: "admin" };
@@ -67,7 +82,7 @@ function readHashRoute(): AppRoute {
 }
 
 function getHashForState(view: View, companyTab: CompanyTab, adminTab: AdminTab) {
-  if (view === "requestAccess") return "#/solicitar-acceso";
+  if (view === "requestAccess") return "#/obtener-acceso";
   if (view === "login" || view === "loginEmpresa" || view === "loginAdmin") return "#/login";
   if (view === "questionnaire") return "#/empresa/autodiagnostico";
   if (view === "result") return "#/empresa/resultado";
@@ -107,9 +122,9 @@ function mapCompanyRecord(item: Record<string, any>): AdminCompany {
     state: String(item.state || "Tamaulipas"),
     employees: String(item.employees || "No especificado"),
     years: String(item.years || "No especificado"),
-    email: String(item.email || ""),
-    phone: String(item.phone || ""),
-    representative: String(item.representative || ""),
+    email: String(item.primaryContactEmail || item.email || ""),
+    phone: String(item.primaryContactPhone || item.phone || ""),
+    representative: String(item.primaryContactName || item.representative || ""),
     registeredAt: typeof item.registeredAt === "string" ? item.registeredAt : new Date().toISOString().slice(0, 10),
     followUpStatus: String(item.followUpStatus || item.status || "Sin iniciar") as CompanyProfile["followUpStatus"],
     interestedInAdvisory: Boolean(item.interestedInAdvisory),
@@ -117,6 +132,35 @@ function mapCompanyRecord(item: Record<string, any>): AdminCompany {
     authUid: item.authUid ? String(item.authUid) : undefined,
     mustChangePassword: Boolean(item.mustChangePassword),
     source: "firestore",
+  };
+}
+
+function getAllowedAccessEmails(company: Record<string, any>) {
+  const configured = Array.isArray(company.allowedAccessEmails) ? company.allowedAccessEmails : [];
+  const fallback = [company.primaryContactEmail, company.secondaryContactEmail, company.email];
+  return [...configured, ...fallback].map(normalizeEmail).filter(Boolean);
+}
+
+function isCompanyActiveForAccess(company: Record<string, any>) {
+  const status = toUpperText(company.status || "ACTIVA");
+  const accessStatus = String(company.accessStatus || "").toLowerCase();
+  return status !== "INACTIVA" && accessStatus !== "rejected" && accessStatus !== "inactive";
+}
+
+function mapAuthorizedCompanyForAccess(rawCompany: Record<string, any>) {
+  const mapped = mapCompanyRecord(rawCompany);
+  return {
+    id: mapped.id,
+    folio: getCompanyFolio(mapped),
+    name: mapped.name,
+    rfc: normalizeRfcMoral(rawCompany.rfc),
+    representative: toUpperText(rawCompany.primaryContactName || mapped.representative),
+    email: normalizeEmail(rawCompany.primaryContactEmail || mapped.email),
+    phone: normalizePhone(rawCompany.primaryContactPhone || mapped.phone),
+    sector: mapped.sector,
+    city: toUpperText(mapped.city),
+    state: toUpperText(mapped.state),
+    comments: toUpperText(rawCompany.comments),
   };
 }
 
@@ -274,7 +318,7 @@ function App() {
   const activeDiagnostic = diagnostics.find((diagnostic) => diagnostic.companyId === activeCompany.id && diagnostic.result);
   const activeResult = result ?? latestCompanyResult ?? (authenticatedCompany ? null : (activeDiagnostic?.result ?? completedDiagnostics[0].result!));
   const activeCompanyId = activeCompany.id;
-  const requiresPasswordChange = session.role === "empresa" && Boolean(authenticatedCompany?.mustChangePassword);
+  const requiresPasswordChange = false;
   const currentQuestions = diagnosticModules[currentModule].questions.slice().sort((a, b) => a.order - b.order);
   const answeredQuestions = diagnosticQuestions.filter((question) => answers[question.id] !== undefined).length;
   const progress = Math.round((answeredQuestions / diagnosticQuestions.length) * 100);
@@ -633,7 +677,7 @@ function App() {
         {authReady && view === "login" && <AccessHub onCompany={() => setView("loginEmpresa")} onAdmin={() => setView("loginAdmin")} />}
         {authReady && view === "loginEmpresa" && <CompanyLogin onLogin={loginCompany} />}
         {authReady && view === "loginAdmin" && <AdminLogin onLogin={loginAdmin} />}
-        {authReady && view === "requestAccess" && <AccessRequestScreen onBack={() => setView("landing")} />}
+        {authReady && view === "requestAccess" && <AccessRequestScreen onBack={() => setView("landing")} onLogin={() => setView("loginEmpresa")} />}
         {authReady && view === "register" && <Register profile={profile} setProfile={setProfile} onNext={() => setView("questionnaire")} />}
         {authReady && requiresPasswordChange && <PasswordChangeScreen company={authenticatedCompany!} onChanged={completePasswordChange} onLogout={logout} />}
         {authReady && !requiresPasswordChange && view === "questionnaire" && (
@@ -696,7 +740,7 @@ function MobileDrawerContent(props: {
   logout: () => void;
 }) {
   const companyTabs: CompanyTab[] = ["dashboard", "autodiagnostico", "resultado", "recomendaciones", "observaciones", "perfil"];
-  const adminTabs: AdminTab[] = ["panel", "empresas", "solicitudes", "diagnosticos", "estadisticas", "observaciones", "reportes", "configuracion"];
+  const adminTabs: AdminTab[] = ["panel", "empresas", "diagnosticos", "estadisticas", "observaciones", "reportes", "configuracion"];
   const go = (view: View) => {
     props.setView(view);
     props.close();
@@ -789,7 +833,7 @@ function Landing({ onPortal, onRequestAccess }: { onPortal: () => void; onReques
         <p>Diagnóstico de madurez corporativa para empresas afiliadas a COPARMEX Nuevo Laredo.</p>
         <div className="hero-actions">
           <button className="primary" onClick={onPortal}>Iniciar sesión</button>
-          <button className="secondary" onClick={onRequestAccess}>Solicitar acceso</button>
+          <button className="secondary" onClick={onRequestAccess}>Obtener acceso</button>
         </div>
       </div>
       <div className="hero-panel">
@@ -840,99 +884,36 @@ function AccessHub({ onCompany, onAdmin }: { onCompany: () => void; onAdmin: () 
   );
 }
 
-function AccessRequestScreen({ onBack }: { onBack: () => void }) {
+function AccessRequestScreen({ onBack, onLogin }: { onBack: () => void; onLogin: () => void }) {
   const [form, setForm] = useState({
     folio: "",
-    companyName: "",
-    contactName: "",
     email: "",
-    phone: "",
-    rfc: "",
-    sector: "Administración y desarrollo empresarial",
-    city: "Nuevo Laredo",
-    state: "Tamaulipas",
-    comments: "",
     password: "",
     confirmPassword: "",
-    companyRecordId: "",
+    privacyAccepted: false,
+    termsAccepted: false,
   });
   const [loading, setLoading] = useState(false);
-  const [lookupLoading, setLookupLoading] = useState(false);
-  const [lookupMessage, setLookupMessage] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const update = (field: keyof typeof form, value: string) => setForm((current) => ({ ...current, [field]: value }));
-  const searchFolio = async () => {
+  const [accountExists, setAccountExists] = useState(false);
+  const update = (field: keyof typeof form, value: string | boolean) => setForm((current) => ({ ...current, [field]: value }));
+
+  const submit = async () => {
     const normalizedFolio = form.folio.trim().toUpperCase();
-    setLookupMessage("");
+    const email = normalizeEmail(form.email);
+
     setError("");
     setSuccess("");
+    setAccountExists(false);
 
     if (!normalizedFolio) {
-      setError("Captura el folio de afiliación para buscar la empresa.");
+      setError("Captura el folio COPARMEX.");
       return;
     }
 
-    if (normalizedFolio === demoFolioCompany.folio) {
-      setForm((current) => ({
-        ...current,
-        folio: demoFolioCompany.folio,
-        companyName: demoFolioCompany.name,
-        contactName: demoFolioCompany.representative,
-        email: demoFolioCompany.email,
-        phone: demoFolioCompany.phone,
-        rfc: demoFolioCompany.rfc,
-        sector: demoFolioCompany.sector,
-        city: demoFolioCompany.city,
-        state: toUpperText(demoFolioCompany.state),
-        comments: demoFolioCompany.comments,
-        companyRecordId: demoFolioCompany.id,
-      }));
-      setLookupMessage("Empresa encontrada. Revisa los datos y captura tu contraseña.");
-      return;
-    }
-
-    setLookupLoading(true);
-    try {
-      const company = await getCompanyByFolio(normalizedFolio);
-      if (!company) {
-        setError("No encontramos una empresa con ese folio. Verifica el dato o solicita apoyo a COPARMEX.");
-        return;
-      }
-
-      const companyData = mapCompanyRecord(company as Record<string, any>);
-      setForm((current) => ({
-        ...current,
-        folio: getCompanyFolio(companyData),
-        companyName: toUpperText(companyData.name),
-        contactName: toUpperText(companyData.representative),
-        email: companyData.email,
-        phone: companyData.phone,
-        rfc: toUpperText((company as Record<string, any>).rfc),
-        sector: companyData.sector,
-        city: toUpperText(companyData.city),
-        state: toUpperText(companyData.state),
-        comments: toUpperText((company as Record<string, any>).comments || current.comments),
-        companyRecordId: companyData.id,
-      }));
-      setLookupMessage("Empresa encontrada. Revisa los datos y captura tu contraseña.");
-    } catch (reason) {
-      setError(getFriendlyErrorMessage(reason, "No fue posible consultar el folio en este momento."));
-    } finally {
-      setLookupLoading(false);
-    }
-  };
-  const submit = async () => {
-    setError("");
-    setSuccess("");
-
-    if (!form.folio || !form.companyName || !form.contactName || !form.email) {
-      setError("Captura folio, empresa, contacto y correo autorizado.");
-      return;
-    }
-
-    if (!form.companyRecordId) {
-      setError("Busca el folio y confirma que la empresa exista antes de enviar la solicitud.");
+    if (!email || !isValidEmail(email)) {
+      setError("Captura un correo válido.");
       return;
     }
 
@@ -946,56 +927,75 @@ function AccessRequestScreen({ onBack }: { onBack: () => void }) {
       return;
     }
 
+    if (!form.privacyAccepted || !form.termsAccepted) {
+      setError("Debes aceptar el Aviso de Privacidad y los Términos y Condiciones para crear tu acceso.");
+      return;
+    }
+
     setLoading(true);
     try {
-      const credential = await registerWithEmail(form.email.trim(), form.password);
-      const normalizedFolio = form.folio.trim().toUpperCase();
-      const companyId = form.companyRecordId || normalizedFolio || credential.user.uid;
-      const companyPayload = {
+      const rawCompany = normalizedFolio === demoFolioCompany.folio ? demoFolioCompany : await getCompanyByFolio(normalizedFolio);
+      if (!rawCompany || !isCompanyActiveForAccess(rawCompany as Record<string, any>)) {
+        setError("No encontramos una empresa activa con esos datos. Verifica tu folio y correo registrado o contacta a COPARMEX Nuevo Laredo.");
+        return;
+      }
+
+      const allowedEmails = getAllowedAccessEmails(rawCompany as Record<string, any>);
+      if (!allowedEmails.includes(email)) {
+        setError("No encontramos una empresa activa con esos datos. Verifica tu folio y correo registrado o contacta a COPARMEX Nuevo Laredo.");
+        return;
+      }
+
+      if (hasActiveAccount(rawCompany as Record<string, any>)) {
+        setAccountExists(true);
+        setError("Esta empresa ya tiene una cuenta activa. Inicia sesión o recupera tu contraseña.");
+        return;
+      }
+
+      const credential = await registerWithEmail(email, form.password);
+      const companyData = mapAuthorizedCompanyForAccess(rawCompany as Record<string, any>);
+      const companyId = companyData.id || normalizedFolio;
+      const payload = {
+        ...companyData,
         id: companyId,
         folio: normalizedFolio,
-        name: form.companyName,
-        rfc: form.rfc,
-        representative: form.contactName,
-        email: form.email.trim().toLowerCase(),
-        phone: form.phone,
-        sector: form.sector,
-        city: form.city,
-        state: form.state,
-        comments: form.comments,
+        email,
+        primaryContactEmail: normalizeEmail((rawCompany as Record<string, any>).primaryContactEmail || email),
+        primaryContactName: toUpperText((rawCompany as Record<string, any>).primaryContactName || companyData.representative),
+        primaryContactPhone: normalizePhone((rawCompany as Record<string, any>).primaryContactPhone || companyData.phone),
+        secondaryContactEmail: normalizeEmail((rawCompany as Record<string, any>).secondaryContactEmail),
+        secondaryContactName: toUpperText((rawCompany as Record<string, any>).secondaryContactName),
+        secondaryContactPhone: normalizePhone((rawCompany as Record<string, any>).secondaryContactPhone),
+        allowedAccessEmails: allowedEmails,
         role: "company",
-        status: "En revisión",
-        accessStatus: "pending",
+        status: "Activa",
+        accessStatus: "active",
         followUpStatus: "Sin iniciar",
         interestedInAdvisory: false,
-        mustChangePassword: false,
+        accountCreated: true,
         authUid: credential.user.uid,
+        activatedAt: new Date().toISOString(),
+        privacyNoticeAccepted: true,
+        privacyNoticeAcceptedAt: new Date().toISOString(),
+        privacyNoticeVersion: "2026-05",
+        termsAccepted: true,
+        termsAcceptedAt: new Date().toISOString(),
+        termsVersion: "2026-05",
       };
+
       if (normalizedFolio === demoFolioCompany.folio) {
-        await createCompany(companyPayload);
+        await createCompany(payload);
       } else {
-        await updateCompany(companyId, companyPayload);
+        await updateCompany(companyId, payload);
       }
-      const requestId = await saveAccessRequest({
-        folio: normalizedFolio,
-        companyName: form.companyName,
-        contactName: form.contactName,
-        email: form.email.trim().toLowerCase(),
-        phone: form.phone,
-        rfc: form.rfc,
-        sector: form.sector,
-        city: form.city,
-        state: form.state,
-        comments: form.comments,
-        authUid: credential.user.uid,
-        linkedCompanyId: companyId,
-        accessStatus: "pending",
-      });
+
+      setSuccess("Tu acceso fue creado correctamente. Ya puedes iniciar sesión.");
+      setForm({ folio: "", email: "", password: "", confirmPassword: "", privacyAccepted: false, termsAccepted: false });
       await firebaseLogout();
-      setSuccess(`Solicitud enviada correctamente. Folio de solicitud: ${requestId}`);
-      setForm({ folio: "", companyName: "", contactName: "", email: "", phone: "", rfc: "", sector: "Administración y desarrollo empresarial", city: "Nuevo Laredo", state: "Tamaulipas", comments: "", password: "", confirmPassword: "", companyRecordId: "" });
     } catch (err) {
-      setError(getFriendlyErrorMessage(err, "No fue posible enviar la solicitud de acceso."));
+      const message = getFriendlyErrorMessage(err, "No pudimos crear el acceso. Verifica tus datos e intenta nuevamente.");
+      if (message.includes("correo ya tiene una cuenta")) setAccountExists(true);
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -1003,38 +1003,32 @@ function AccessRequestScreen({ onBack }: { onBack: () => void }) {
 
   return (
     <section className="page narrow">
-      <SectionTitle title="Solicitar acceso" subtitle="Solicitud para empresas previamente registradas por COPARMEX Nuevo Laredo. El acceso queda sujeto a validación administrativa." />
+      <SectionTitle title="Obtener acceso" subtitle="Crea tu acceso si tu folio y correo coinciden con una empresa previamente registrada por COPARMEX Nuevo Laredo." />
       <div className="login-card">
-        <div className="folio-lookup">
-          <Field label="Folio de afiliación" value={form.folio} onChange={(value) => {
-            setLookupMessage("");
-            setForm((current) => ({ ...current, folio: value.toUpperCase(), companyRecordId: "" }));
-          }} />
-          <button className="secondary" onClick={searchFolio} disabled={lookupLoading}>{lookupLoading ? "Buscando..." : "Buscar folio"}</button>
-        </div>
-        {lookupMessage && <p className="save-status success">{lookupMessage}</p>}
-        <Field label="Nombre de empresa" value={form.companyName} onChange={(value) => update("companyName", value)} />
-        <Field label="RFC" value={form.rfc} onChange={(value) => update("rfc", value)} />
-        <Field label="Nombre del contacto" value={form.contactName} onChange={(value) => update("contactName", value)} />
-        <Select
-          label="Sector"
-          value={form.sector}
-          onChange={(value) => update("sector", value)}
-          options={["Administración y desarrollo empresarial", "Servicios legales", "Logística y operación", "Servicios notariales", "Gestión empresarial", "Comercio", "Industria", "Servicios profesionales", "Tecnología"]}
-        />
-        <Field label="Correo autorizado" value={form.email} onChange={(value) => update("email", value)} transform="none" type="email" />
-        <PasswordField label="Contraseña" value={form.password} onChange={(value) => update("password", value)} />
+        <Field label="Folio COPARMEX" value={form.folio} onChange={(value) => update("folio", value)} />
+        <Field label="Correo registrado" value={form.email} onChange={(value) => update("email", value)} transform="none" type="email" />
+        <PasswordField label="Nueva contraseña" value={form.password} onChange={(value) => update("password", value)} />
         <PasswordField label="Confirmar contraseña" value={form.confirmPassword} onChange={(value) => update("confirmPassword", value)} />
         <p className="field-hint">La contraseña debe tener al menos 8 caracteres.</p>
-        <Field label="Teléfono" value={form.phone} onChange={(value) => update("phone", value)} />
-        <Field label="Ciudad" value={form.city} onChange={(value) => update("city", value)} />
-        <Field label="Estado" value={form.state} onChange={(value) => update("state", value)} />
-        <Field label="Comentarios" value={form.comments} onChange={(value) => update("comments", value)} />
+        <label className="check-row">
+          <input type="checkbox" checked={form.privacyAccepted} onChange={(event) => update("privacyAccepted", event.target.checked)} />
+          <span>He leído y acepto el <button type="button" className="inline-link">Aviso de Privacidad</button>.</span>
+        </label>
+        <label className="check-row">
+          <input type="checkbox" checked={form.termsAccepted} onChange={(event) => update("termsAccepted", event.target.checked)} />
+          <span>Acepto los <button type="button" className="inline-link">Términos y Condiciones</button> de uso de la plataforma.</span>
+        </label>
         {error && <p className="form-error">{error}</p>}
         {success && <p className="save-status success">{success}</p>}
-        <div className="notice"><ShieldCheck size={18} /> El administrador podrá autorizar o rechazar la solicitud después de validar que la empresa corresponda al padrón institucional.</div>
+        {accountExists && (
+          <div className="actions-row">
+            <button className="primary" onClick={onLogin}>Iniciar sesión</button>
+            <button className="secondary" onClick={onLogin}>Olvidé mi contraseña</button>
+          </div>
+        )}
+        <div className="notice"><ShieldCheck size={18} /> El acceso se crea únicamente si el folio y el correo registrado coinciden con la información autorizada por COPARMEX Nuevo Laredo.</div>
         <div className="actions-row">
-          <button className="primary" onClick={submit} disabled={loading}>{loading ? "Enviando..." : "Enviar solicitud"}</button>
+          <button className="primary" onClick={submit} disabled={loading}>{loading ? "Creando acceso..." : "Crear acceso"}</button>
           <button className="secondary" onClick={onBack}>Volver al inicio</button>
         </div>
       </div>
@@ -1108,7 +1102,10 @@ function PasswordChangeScreen({ company, onChanged, onLogout }: { company: Admin
 function CompanyLogin({ onLogin }: { onLogin: (email: string, password: string) => Promise<void> }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
+  const [recoveryEmail, setRecoveryEmail] = useState("");
   const [loading, setLoading] = useState(false);
+  const [recoveryLoading, setRecoveryLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const submit = async () => {
@@ -1124,6 +1121,28 @@ function CompanyLogin({ onLogin }: { onLogin: (email: string, password: string) 
       setLoading(false);
     }
   };
+  const recoverPassword = async () => {
+    setError("");
+    setSuccess("");
+    const emailToRecover = normalizeEmail(recoveryEmail || email);
+    if (!emailToRecover || !isValidEmail(emailToRecover)) {
+      setError("Captura un correo válido para recuperar tu contraseña.");
+      return;
+    }
+
+    setRecoveryLoading(true);
+    try {
+      await sendRecoveryEmail(emailToRecover);
+      setSuccess("Si el correo está registrado, recibirás instrucciones para restablecer tu contraseña.");
+      setRecoveryOpen(false);
+    } catch (err) {
+      console.error("Password recovery failed", err);
+      setSuccess("Si el correo está registrado, recibirás instrucciones para restablecer tu contraseña.");
+      setRecoveryOpen(false);
+    } finally {
+      setRecoveryLoading(false);
+    }
+  };
   return (
     <section className="page narrow">
       <SectionTitle title="Acceso empresa" subtitle="Utiliza el correo autorizado por COPARMEX Nuevo Laredo." />
@@ -1133,6 +1152,13 @@ function CompanyLogin({ onLogin }: { onLogin: (email: string, password: string) 
         {error && <p className="form-error">{error}</p>}
         {success && <p className="save-status success">{success}</p>}
         <button className="primary" onClick={submit} disabled={loading || !email || !password}>{loading ? "Validando acceso..." : "Ingresar al portal empresa"}</button>
+        <button className="secondary" onClick={() => { setRecoveryOpen((current) => !current); setRecoveryEmail(email); }}>Olvidé mi contraseña</button>
+        {recoveryOpen && (
+          <div className="recovery-panel">
+            <Field label="Correo para recuperación" value={recoveryEmail} onChange={setRecoveryEmail} transform="none" type="email" />
+            <button className="primary" onClick={recoverPassword} disabled={recoveryLoading}>{recoveryLoading ? "Enviando..." : "Enviar instrucciones"}</button>
+          </div>
+        )}
       </div>
     </section>
   );
@@ -1166,7 +1192,7 @@ function Register({ profile, setProfile, onNext }: { profile: CompanyProfile; se
         <Select label="Número aproximado de empleados" value={profile.employees} onChange={(value) => update("employees", value)} options={["1-10", "11-30", "31-50", "51-100", "101-250", "251+"]} />
         <Select label="Antigüedad de la empresa" value={profile.years} onChange={(value) => update("years", value)} options={["1-2 años", "3-5 años", "6-10 años", "Más de 10 años"]} />
         <Field label="Correo electrónico de contacto" value={profile.email} onChange={(value) => update("email", value)} transform="none" type="email" />
-        <Field label="Teléfono" value={profile.phone} onChange={(value) => update("phone", value)} />
+        <Field label="Teléfono" value={profile.phone} onChange={(value) => update("phone", value)} format="phone" maxLength={10} />
         <Field label="Representante o contacto principal" value={profile.representative} onChange={(value) => update("representative", value)} />
       </div>
       <div className="notice"><ShieldCheck size={18} /> La información se trata bajo confidencialidad, aviso de privacidad y uso agregado para indicadores regionales.</div>
@@ -1274,7 +1300,7 @@ function CompanyPortal({ tab, setTab, company, result, loadingResult, resultErro
 }
 
 function AdminPortal(props: { tab: AdminTab; setTab: (tab: AdminTab) => void; stats: any; selectedCompanyId: string; setSelectedCompanyId: (id: string) => void; setSelectedAdminCompany: (company: AdminCompany | null) => void; setView: (view: View) => void; onPdf: () => void; diagnostics: AdminDiagnosticRecord[]; diagnosticsLoading: boolean; diagnosticsError: string }) {
-  const tabs: AdminTab[] = ["panel", "empresas", "solicitudes", "diagnosticos", "estadisticas", "observaciones", "reportes", "configuracion"];
+  const tabs: AdminTab[] = ["panel", "empresas", "diagnosticos", "estadisticas", "observaciones", "reportes", "configuracion"];
   return (
     <section className="portal">
       <Sidebar title="Panel administrativo" items={tabs} active={props.tab} onSelect={props.setTab} />
@@ -1357,7 +1383,7 @@ function AccessRequestsPanel() {
     }
 
     if (!request.phone && !request.contactName) {
-      setError("Captura al menos tel?fono o representante para aprobar la solicitud.");
+      setError("Captura al menos teléfono o representante para aprobar la solicitud.");
       return;
     }
 
@@ -1587,8 +1613,16 @@ function CompaniesTable({ diagnostics: adminDiagnostics, setSelectedCompanyId, s
   const [newCompany, setNewCompany] = useState({
     folio: "",
     name: "",
+    rfc: "",
     sector: "Administración y desarrollo empresarial",
     representative: "",
+    primaryContactName: "",
+    primaryContactEmail: "",
+    primaryContactPhone: "",
+    secondaryContactName: "",
+    secondaryContactEmail: "",
+    secondaryContactPhone: "",
+    allowedAccessEmails: "",
     city: "Nuevo Laredo",
     state: "Tamaulipas",
     email: "",
@@ -1646,7 +1680,15 @@ function CompaniesTable({ diagnostics: adminDiagnostics, setSelectedCompanyId, s
   const saveNewCompany = async () => {
     const folio = newCompany.folio.trim().toUpperCase();
     const name = newCompany.name.trim();
-    const email = newCompany.email.trim();
+    const email = normalizeEmail(newCompany.primaryContactEmail || newCompany.email);
+    const rfc = normalizeRfcMoral(newCompany.rfc);
+    const phone = normalizePhone(newCompany.primaryContactPhone || newCompany.phone);
+    const allowedAccessEmails = [
+      newCompany.primaryContactEmail,
+      newCompany.secondaryContactEmail,
+      newCompany.email,
+      ...newCompany.allowedAccessEmails.split(/[,\s;]+/),
+    ].map(normalizeEmail).filter(Boolean);
 
     setCompanySaveMessage("");
     setCompanySaveError("");
@@ -1656,22 +1698,47 @@ function CompaniesTable({ diagnostics: adminDiagnostics, setSelectedCompanyId, s
       return;
     }
 
+    if (!isValidEmail(email)) {
+      setCompanySaveError("Captura un correo válido.");
+      return;
+    }
+
+    if (rfc && !isValidRfcMoral(rfc)) {
+      setCompanySaveError("El RFC debe tener formato de persona moral: 12 caracteres, por ejemplo ABC010101AB1.");
+      return;
+    }
+
+    if (phone && phone.length !== 10) {
+      setCompanySaveError("El teléfono debe tener 10 dígitos.");
+      return;
+    }
+
     setSavingCompany(true);
     try {
       await createCompany({
         id: folio,
         folio,
         name,
+        rfc,
         sector: newCompany.sector,
-        representative: newCompany.representative,
+        representative: newCompany.representative || newCompany.primaryContactName,
+        primaryContactName: newCompany.primaryContactName || newCompany.representative,
+        primaryContactEmail: email,
+        primaryContactPhone: phone,
+        secondaryContactName: newCompany.secondaryContactName,
+        secondaryContactEmail: normalizeEmail(newCompany.secondaryContactEmail),
+        secondaryContactPhone: normalizePhone(newCompany.secondaryContactPhone),
+        allowedAccessEmails: [...new Set(allowedAccessEmails)],
         city: newCompany.city,
         state: newCompany.state,
         email,
-        phone: newCompany.phone,
+        phone,
         followUpStatus: newCompany.followUpStatus,
         registeredAt: new Date().toISOString().slice(0, 10),
         interestedInAdvisory: false,
         status: "Activa",
+        accessStatus: "available",
+        accountCreated: false,
       });
 
       const created: AdminCompany = {
@@ -1679,11 +1746,11 @@ function CompaniesTable({ diagnostics: adminDiagnostics, setSelectedCompanyId, s
         folio,
         name,
         sector: newCompany.sector,
-        representative: newCompany.representative,
+        representative: newCompany.representative || newCompany.primaryContactName,
         city: newCompany.city,
         state: newCompany.state,
         email,
-        phone: newCompany.phone,
+        phone,
         employees: "No especificado",
         years: "No especificado",
         registeredAt: new Date().toISOString().slice(0, 10),
@@ -1698,8 +1765,16 @@ function CompaniesTable({ diagnostics: adminDiagnostics, setSelectedCompanyId, s
       setNewCompany({
         folio: "",
         name: "",
+        rfc: "",
         sector: "Administración y desarrollo empresarial",
         representative: "",
+        primaryContactName: "",
+        primaryContactEmail: "",
+        primaryContactPhone: "",
+        secondaryContactName: "",
+        secondaryContactEmail: "",
+        secondaryContactPhone: "",
+        allowedAccessEmails: "",
         city: "Nuevo Laredo",
         state: "Tamaulipas",
         email: "",
@@ -1729,6 +1804,7 @@ function CompaniesTable({ diagnostics: adminDiagnostics, setSelectedCompanyId, s
           <div className="form-grid">
             <Field label="Folio" value={newCompany.folio} onChange={(value) => updateNewCompany("folio", value)} />
             <Field label="Nombre de empresa" value={newCompany.name} onChange={(value) => updateNewCompany("name", value)} />
+            <Field label="RFC moral" value={newCompany.rfc} onChange={(value) => updateNewCompany("rfc", value)} format="rfcMoral" maxLength={12} />
             <Select
               label="Sector"
               value={newCompany.sector}
@@ -1736,10 +1812,17 @@ function CompaniesTable({ diagnostics: adminDiagnostics, setSelectedCompanyId, s
               options={["Administración y desarrollo empresarial", "Servicios legales", "Logística y operación", "Servicios notariales", "Gestión empresarial", "Comercio", "Industria", "Servicios profesionales", "Tecnología"]}
             />
             <Field label="Representante" value={newCompany.representative} onChange={(value) => updateNewCompany("representative", value)} />
+            <Field label="Contacto principal" value={newCompany.primaryContactName} onChange={(value) => updateNewCompany("primaryContactName", value)} />
+            <Field label="Correo principal autorizado" value={newCompany.primaryContactEmail} onChange={(value) => updateNewCompany("primaryContactEmail", value)} transform="none" type="email" />
+            <Field label="Teléfono principal" value={newCompany.primaryContactPhone} onChange={(value) => updateNewCompany("primaryContactPhone", value)} format="phone" maxLength={10} />
+            <Field label="Contacto secundario" value={newCompany.secondaryContactName} onChange={(value) => updateNewCompany("secondaryContactName", value)} />
+            <Field label="Correo secundario autorizado" value={newCompany.secondaryContactEmail} onChange={(value) => updateNewCompany("secondaryContactEmail", value)} transform="none" type="email" />
+            <Field label="Teléfono secundario" value={newCompany.secondaryContactPhone} onChange={(value) => updateNewCompany("secondaryContactPhone", value)} format="phone" maxLength={10} />
+            <Field label="Correos autorizados adicionales" value={newCompany.allowedAccessEmails} onChange={(value) => updateNewCompany("allowedAccessEmails", value)} transform="none" />
             <Field label="Ciudad" value={newCompany.city} onChange={(value) => updateNewCompany("city", value)} />
             <Field label="Estado" value={newCompany.state} onChange={(value) => updateNewCompany("state", value)} />
             <Field label="Correo autorizado" value={newCompany.email} onChange={(value) => updateNewCompany("email", value)} transform="none" type="email" />
-            <Field label="Teléfono" value={newCompany.phone} onChange={(value) => updateNewCompany("phone", value)} />
+            <Field label="Teléfono" value={newCompany.phone} onChange={(value) => updateNewCompany("phone", value)} format="phone" maxLength={10} />
             <Select
               label="Seguimiento"
               value={newCompany.followUpStatus}
@@ -1923,19 +2006,27 @@ function Field({
   onChange,
   transform = "uppercase",
   type = "text",
+  format = "text",
+  maxLength,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   transform?: "uppercase" | "none";
   type?: React.HTMLInputTypeAttribute;
+  format?: "text" | "phone" | "rfcMoral";
+  maxLength?: number;
 }) {
   const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const nextValue = event.target.value;
-    onChange(transform === "uppercase" ? nextValue.toLocaleUpperCase("es-MX") : nextValue);
+    let nextValue = event.target.value;
+    if (format === "phone") nextValue = normalizePhone(nextValue);
+    if (format === "rfcMoral") nextValue = normalizeRfcMoral(nextValue);
+    if (format === "text" && transform === "uppercase") nextValue = nextValue.toLocaleUpperCase("es-MX");
+    if (maxLength) nextValue = nextValue.slice(0, maxLength);
+    onChange(nextValue);
   };
 
-  return <label className="field"><span>{label}</span><input type={type} value={value} onChange={handleChange} /></label>;
+  return <label className="field"><span>{label}</span><input type={type} value={value} inputMode={format === "phone" ? "numeric" : undefined} maxLength={maxLength} onChange={handleChange} /></label>;
 }
 
 function TextArea({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string }) {

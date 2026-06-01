@@ -11,6 +11,15 @@ export type CompanyFirestoreData = {
   email?: string;
   phone?: string;
   folio?: string;
+  rfc?: string;
+  primaryContactName?: string;
+  primaryContactEmail?: string;
+  primaryContactPhone?: string;
+  secondaryContactName?: string;
+  secondaryContactEmail?: string;
+  secondaryContactPhone?: string;
+  allowedAccessEmails?: string[];
+  accountCreated?: boolean;
   status?: string;
   authUid?: string;
   accessStatus?: string;

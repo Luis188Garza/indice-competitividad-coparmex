@@ -291,6 +291,37 @@ main { min-height: calc(100vh - 74px); }
   font-size: 14px;
   font-weight: 700;
 }
+.check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 12px 0;
+  color: var(--text);
+  font-weight: 700;
+}
+.check-row input {
+  width: 18px;
+  height: 18px;
+  margin-top: 3px;
+  accent-color: var(--blue);
+}
+.inline-link {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--blue);
+  font: inherit;
+  font-weight: 900;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.recovery-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
 .notice {
   display: flex;
   gap: 10px;

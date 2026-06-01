@@ -1,4 +1,4 @@
-import { createUserWithEmailAndPassword, onAuthStateChanged, signInWithEmailAndPassword, signOut, updatePassword, type User } from "firebase/auth";
+import { createUserWithEmailAndPassword, onAuthStateChanged, sendPasswordResetEmail, signInWithEmailAndPassword, signOut, updatePassword, type User } from "firebase/auth";
 import { auth } from "../firebase/firebaseConfig";
 
 export function loginWithEmail(email: string, password: string) {
@@ -7,6 +7,10 @@ export function loginWithEmail(email: string, password: string) {
 
 export function registerWithEmail(email: string, password: string) {
   return createUserWithEmailAndPassword(auth, email, password);
+}
+
+export function sendRecoveryEmail(email: string) {
+  return sendPasswordResetEmail(auth, email);
 }
 
 export function logout() {
