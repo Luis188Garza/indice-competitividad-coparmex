@@ -37,19 +37,20 @@ type AdminDiagnosticRecord = { id: string; companyId: string; companyName: strin
 
 const diagnosticModules = diagnosticICE.modules.slice().sort((a, b) => a.order - b.order);
 const diagnosticQuestions = diagnosticModules.flatMap((module) => module.questions.slice().sort((a, b) => a.order - b.order));
+const toUpperText = (value: unknown) => String(value || "").toLocaleUpperCase("es-MX");
 
 const demoFolioCompany = {
   id: "1234",
   folio: "1234",
-  name: "Empresa de Demostración COPARMEX",
+  name: "EMPRESA DE DEMOSTRACIÓN COPARMEX",
   rfc: "EDC260101ABC",
-  representative: "Andrea Villarreal",
+  representative: "ANDREA VILLARREAL",
   email: "empresa.demo@coparmexnld.org.mx",
   phone: "8671234567",
   sector: "Administración y desarrollo empresarial",
-  city: "Nuevo Laredo",
+  city: "NUEVO LAREDO",
   state: "Tamaulipas",
-  comments: "Registro local de demostración para validar el flujo de solicitud de acceso.",
+  comments: "REGISTRO LOCAL DE DEMOSTRACIÓN PARA VALIDAR EL FLUJO DE SOLICITUD DE ACCESO.",
 };
 
 function readHashRoute(): AppRoute {
@@ -883,7 +884,7 @@ function AccessRequestScreen({ onBack }: { onBack: () => void }) {
         rfc: demoFolioCompany.rfc,
         sector: demoFolioCompany.sector,
         city: demoFolioCompany.city,
-        state: demoFolioCompany.state,
+        state: toUpperText(demoFolioCompany.state),
         comments: demoFolioCompany.comments,
         companyRecordId: demoFolioCompany.id,
       }));
@@ -903,15 +904,15 @@ function AccessRequestScreen({ onBack }: { onBack: () => void }) {
       setForm((current) => ({
         ...current,
         folio: getCompanyFolio(companyData),
-        companyName: companyData.name,
-        contactName: companyData.representative,
+        companyName: toUpperText(companyData.name),
+        contactName: toUpperText(companyData.representative),
         email: companyData.email,
         phone: companyData.phone,
-        rfc: String((company as Record<string, any>).rfc || ""),
+        rfc: toUpperText((company as Record<string, any>).rfc),
         sector: companyData.sector,
-        city: companyData.city,
-        state: companyData.state,
-        comments: String((company as Record<string, any>).comments || current.comments),
+        city: toUpperText(companyData.city),
+        state: toUpperText(companyData.state),
+        comments: toUpperText((company as Record<string, any>).comments || current.comments),
         companyRecordId: companyData.id,
       }));
       setLookupMessage("Empresa encontrada. Revisa los datos y captura tu contraseña.");
@@ -1021,7 +1022,7 @@ function AccessRequestScreen({ onBack }: { onBack: () => void }) {
           onChange={(value) => update("sector", value)}
           options={["Administración y desarrollo empresarial", "Servicios legales", "Logística y operación", "Servicios notariales", "Gestión empresarial", "Comercio", "Industria", "Servicios profesionales", "Tecnología"]}
         />
-        <Field label="Correo autorizado" value={form.email} onChange={(value) => update("email", value)} />
+        <Field label="Correo autorizado" value={form.email} onChange={(value) => update("email", value)} transform="none" type="email" />
         <PasswordField label="Contraseña" value={form.password} onChange={(value) => update("password", value)} />
         <PasswordField label="Confirmar contraseña" value={form.confirmPassword} onChange={(value) => update("confirmPassword", value)} />
         <p className="field-hint">La contraseña debe tener al menos 8 caracteres.</p>
@@ -1127,7 +1128,7 @@ function CompanyLogin({ onLogin }: { onLogin: (email: string, password: string) 
     <section className="page narrow">
       <SectionTitle title="Acceso empresa" subtitle="Utiliza el correo autorizado por COPARMEX Nuevo Laredo." />
       <div className="login-card">
-        <Field label="Correo" value={email} onChange={setEmail} />
+        <Field label="Correo" value={email} onChange={setEmail} transform="none" type="email" />
         <PasswordField label="Contraseña" value={password} onChange={setPassword} />
         {error && <p className="form-error">{error}</p>}
         {success && <p className="save-status success">{success}</p>}
@@ -1145,7 +1146,7 @@ function AdminLogin({ onLogin }: { onLogin: (user: string, password: string) => 
     <section className="page narrow">
       <SectionTitle title="Acceso administrador" subtitle="Acceso exclusivo para personal autorizado de COPARMEX Nuevo Laredo." />
       <div className="login-card">
-        <Field label="Usuario o correo" value={user} onChange={setUser} />
+        <Field label="Usuario o correo" value={user} onChange={setUser} transform="none" />
         <PasswordField label="Contraseña" value={password} onChange={setPassword} />
         {error && <p className="form-error">{error}</p>}
         <button className="primary" onClick={() => onLogin(user, password) || setError("Usuario o contraseña incorrectos.")}>Ingresar al panel administrativo</button>
@@ -1164,7 +1165,7 @@ function Register({ profile, setProfile, onNext }: { profile: CompanyProfile; se
         <Select label="Sector económico" value={profile.sector} onChange={(value) => update("sector", value)} options={["Servicios legales", "Logística y operación", "Administración y desarrollo empresarial", "Servicios notariales", "Comercio", "Construcción", "Industria", "Servicios profesionales", "Tecnología"]} />
         <Select label="Número aproximado de empleados" value={profile.employees} onChange={(value) => update("employees", value)} options={["1-10", "11-30", "31-50", "51-100", "101-250", "251+"]} />
         <Select label="Antigüedad de la empresa" value={profile.years} onChange={(value) => update("years", value)} options={["1-2 años", "3-5 años", "6-10 años", "Más de 10 años"]} />
-        <Field label="Correo electrónico de contacto" value={profile.email} onChange={(value) => update("email", value)} />
+        <Field label="Correo electrónico de contacto" value={profile.email} onChange={(value) => update("email", value)} transform="none" type="email" />
         <Field label="Teléfono" value={profile.phone} onChange={(value) => update("phone", value)} />
         <Field label="Representante o contacto principal" value={profile.representative} onChange={(value) => update("representative", value)} />
       </div>
@@ -1737,7 +1738,7 @@ function CompaniesTable({ diagnostics: adminDiagnostics, setSelectedCompanyId, s
             <Field label="Representante" value={newCompany.representative} onChange={(value) => updateNewCompany("representative", value)} />
             <Field label="Ciudad" value={newCompany.city} onChange={(value) => updateNewCompany("city", value)} />
             <Field label="Estado" value={newCompany.state} onChange={(value) => updateNewCompany("state", value)} />
-            <Field label="Correo autorizado" value={newCompany.email} onChange={(value) => updateNewCompany("email", value)} />
+            <Field label="Correo autorizado" value={newCompany.email} onChange={(value) => updateNewCompany("email", value)} transform="none" type="email" />
             <Field label="Teléfono" value={newCompany.phone} onChange={(value) => updateNewCompany("phone", value)} />
             <Select
               label="Seguimiento"
@@ -1916,12 +1917,29 @@ function labelize(value: string) {
   return labels[value] ?? value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-function Field({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  return <label className="field"><span>{label}</span><input value={value} onChange={(event) => onChange(event.target.value)} /></label>;
+function Field({
+  label,
+  value,
+  onChange,
+  transform = "uppercase",
+  type = "text",
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  transform?: "uppercase" | "none";
+  type?: React.HTMLInputTypeAttribute;
+}) {
+  const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const nextValue = event.target.value;
+    onChange(transform === "uppercase" ? nextValue.toLocaleUpperCase("es-MX") : nextValue);
+  };
+
+  return <label className="field"><span>{label}</span><input type={type} value={value} onChange={handleChange} /></label>;
 }
 
 function TextArea({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string }) {
-  return <label className="field"><span>{label}</span><textarea value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} /></label>;
+  return <label className="field"><span>{label}</span><textarea value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value.toLocaleUpperCase("es-MX"))} /></label>;
 }
 
 function PasswordField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
