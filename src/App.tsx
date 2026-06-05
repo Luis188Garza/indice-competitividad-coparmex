@@ -1768,13 +1768,6 @@ function CompaniesTable({ diagnostics: adminDiagnostics, setSelectedCompanyId, s
     rfc: "",
     sector: "Administración y desarrollo empresarial",
     representative: "",
-    primaryContactName: "",
-    primaryContactEmail: "",
-    primaryContactPhone: "",
-    secondaryContactName: "",
-    secondaryContactEmail: "",
-    secondaryContactPhone: "",
-    allowedAccessEmails: "",
     city: "Nuevo Laredo",
     state: "Tamaulipas",
     email: "",
@@ -1829,18 +1822,42 @@ function CompaniesTable({ diagnostics: adminDiagnostics, setSelectedCompanyId, s
   const updateNewCompany = (field: keyof typeof newCompany, value: string) => {
     setNewCompany((current) => ({ ...current, [field]: value }));
   };
+
+  const validateDuplicateFolio = async (folioValue = newCompany.folio) => {
+    const folio = folioValue.trim().toUpperCase();
+    if (!folio) return false;
+
+    const localMatch = displayCompanies.find((company) => {
+      const companyFolio = getCompanyFolio(company).trim().toUpperCase();
+      const companyId = String(company.id || "").trim().toUpperCase();
+      return companyFolio === folio || companyId === folio;
+    });
+
+    if (localMatch || folio === demoFolioCompany.folio) {
+      setCompanySaveError(`Ya existe una empresa registrada con el folio ${folio}. Usa un folio diferente o revisa el registro existente.`);
+      return true;
+    }
+
+    try {
+      const existingCompany = await getCompanyByFolio(folio);
+      if (existingCompany) {
+        setCompanySaveError(`Ya existe una empresa registrada con el folio ${folio}. Usa un folio diferente o revisa el registro existente.`);
+        return true;
+      }
+    } catch (error) {
+      console.error("Folio lookup failed", error);
+    }
+
+    setCompanySaveError("");
+    return false;
+  };
+
   const saveNewCompany = async () => {
     const folio = newCompany.folio.trim().toUpperCase();
     const name = newCompany.name.trim();
-    const email = normalizeEmail(newCompany.primaryContactEmail || newCompany.email);
+    const email = normalizeEmail(newCompany.email);
     const rfc = normalizeRfcMoral(newCompany.rfc);
-    const phone = normalizePhone(newCompany.primaryContactPhone || newCompany.phone);
-    const allowedAccessEmails = [
-      newCompany.primaryContactEmail,
-      newCompany.secondaryContactEmail,
-      newCompany.email,
-      ...newCompany.allowedAccessEmails.split(/[,\s;]+/),
-    ].map(normalizeEmail).filter(Boolean);
+    const phone = normalizePhone(newCompany.phone);
 
     setCompanySaveMessage("");
     setCompanySaveError("");
@@ -1867,20 +1884,20 @@ function CompaniesTable({ diagnostics: adminDiagnostics, setSelectedCompanyId, s
 
     setSavingCompany(true);
     try {
+      const folioAlreadyExists = await validateDuplicateFolio(folio);
+      if (folioAlreadyExists) return;
+
       await createCompany({
         id: folio,
         folio,
         name,
         rfc,
         sector: newCompany.sector,
-        representative: newCompany.representative || newCompany.primaryContactName,
-        primaryContactName: newCompany.primaryContactName || newCompany.representative,
+        representative: newCompany.representative,
+        primaryContactName: newCompany.representative,
         primaryContactEmail: email,
         primaryContactPhone: phone,
-        secondaryContactName: newCompany.secondaryContactName,
-        secondaryContactEmail: normalizeEmail(newCompany.secondaryContactEmail),
-        secondaryContactPhone: normalizePhone(newCompany.secondaryContactPhone),
-        allowedAccessEmails: [...new Set(allowedAccessEmails)],
+        allowedAccessEmails: [email],
         city: newCompany.city,
         state: newCompany.state,
         email,
@@ -1898,7 +1915,7 @@ function CompaniesTable({ diagnostics: adminDiagnostics, setSelectedCompanyId, s
         folio,
         name,
         sector: newCompany.sector,
-        representative: newCompany.representative || newCompany.primaryContactName,
+        representative: newCompany.representative,
         city: newCompany.city,
         state: newCompany.state,
         email,
@@ -1920,13 +1937,6 @@ function CompaniesTable({ diagnostics: adminDiagnostics, setSelectedCompanyId, s
         rfc: "",
         sector: "Administración y desarrollo empresarial",
         representative: "",
-        primaryContactName: "",
-        primaryContactEmail: "",
-        primaryContactPhone: "",
-        secondaryContactName: "",
-        secondaryContactEmail: "",
-        secondaryContactPhone: "",
-        allowedAccessEmails: "",
         city: "Nuevo Laredo",
         state: "Tamaulipas",
         email: "",
@@ -1954,7 +1964,16 @@ function CompaniesTable({ diagnostics: adminDiagnostics, setSelectedCompanyId, s
         <div className="card company-form-card">
           <h3>Alta de empresa</h3>
           <div className="form-grid">
-            <Field label="Folio" value={newCompany.folio} onChange={(value) => updateNewCompany("folio", value)} />
+            <Field
+              label="Folio"
+              value={newCompany.folio}
+              onChange={(value) => {
+                updateNewCompany("folio", value);
+                if (companySaveError.startsWith("Ya existe una empresa registrada con el folio")) setCompanySaveError("");
+              }}
+              onBlur={() => void validateDuplicateFolio()}
+              onEnter={() => void validateDuplicateFolio()}
+            />
             <Field label="Nombre de empresa" value={newCompany.name} onChange={(value) => updateNewCompany("name", value)} />
             <Field label="RFC moral" value={newCompany.rfc} onChange={(value) => updateNewCompany("rfc", value)} format="rfcMoral" maxLength={12} />
             <Select
@@ -1964,17 +1983,10 @@ function CompaniesTable({ diagnostics: adminDiagnostics, setSelectedCompanyId, s
               options={["Administración y desarrollo empresarial", "Servicios legales", "Logística y operación", "Servicios notariales", "Gestión empresarial", "Comercio", "Industria", "Servicios profesionales", "Tecnología"]}
             />
             <Field label="Representante" value={newCompany.representative} onChange={(value) => updateNewCompany("representative", value)} />
-            <Field label="Contacto principal" value={newCompany.primaryContactName} onChange={(value) => updateNewCompany("primaryContactName", value)} />
-            <Field label="Correo principal autorizado" value={newCompany.primaryContactEmail} onChange={(value) => updateNewCompany("primaryContactEmail", value)} transform="none" type="email" />
-            <Field label="Teléfono principal" value={newCompany.primaryContactPhone} onChange={(value) => updateNewCompany("primaryContactPhone", value)} format="phone" maxLength={10} />
-            <Field label="Contacto secundario" value={newCompany.secondaryContactName} onChange={(value) => updateNewCompany("secondaryContactName", value)} />
-            <Field label="Correo secundario autorizado" value={newCompany.secondaryContactEmail} onChange={(value) => updateNewCompany("secondaryContactEmail", value)} transform="none" type="email" />
-            <Field label="Teléfono secundario" value={newCompany.secondaryContactPhone} onChange={(value) => updateNewCompany("secondaryContactPhone", value)} format="phone" maxLength={10} />
-            <Field label="Correos autorizados adicionales" value={newCompany.allowedAccessEmails} onChange={(value) => updateNewCompany("allowedAccessEmails", value)} transform="none" />
-            <Field label="Ciudad" value={newCompany.city} onChange={(value) => updateNewCompany("city", value)} />
-            <Field label="Estado" value={newCompany.state} onChange={(value) => updateNewCompany("state", value)} />
             <Field label="Correo autorizado" value={newCompany.email} onChange={(value) => updateNewCompany("email", value)} transform="none" type="email" />
             <Field label="Teléfono" value={newCompany.phone} onChange={(value) => updateNewCompany("phone", value)} format="phone" maxLength={10} />
+            <Field label="Ciudad" value={newCompany.city} onChange={(value) => updateNewCompany("city", value)} />
+            <Field label="Estado" value={newCompany.state} onChange={(value) => updateNewCompany("state", value)} />
             <Select
               label="Seguimiento"
               value={newCompany.followUpStatus}
@@ -2249,6 +2261,8 @@ function Field({
   type = "text",
   format = "text",
   maxLength,
+  onBlur,
+  onEnter,
 }: {
   label: string;
   value: string;
@@ -2257,6 +2271,8 @@ function Field({
   type?: React.HTMLInputTypeAttribute;
   format?: "text" | "phone" | "rfcMoral";
   maxLength?: number;
+  onBlur?: () => void;
+  onEnter?: () => void;
 }) {
   const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     let nextValue = event.target.value;
@@ -2267,7 +2283,22 @@ function Field({
     onChange(nextValue);
   };
 
-  return <label className="field"><span>{label}</span><input type={type} value={value} inputMode={format === "phone" ? "numeric" : undefined} maxLength={maxLength} onChange={handleChange} /></label>;
+  return (
+    <label className="field">
+      <span>{label}</span>
+      <input
+        type={type}
+        value={value}
+        inputMode={format === "phone" ? "numeric" : undefined}
+        maxLength={maxLength}
+        onBlur={onBlur}
+        onChange={handleChange}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") onEnter?.();
+        }}
+      />
+    </label>
+  );
 }
 
 function TextArea({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string }) {
