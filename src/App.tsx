@@ -364,24 +364,8 @@ function App() {
   const [saveState, setSaveState] = useState<{ loading: boolean; error: string; success: string }>({ loading: false, error: "", success: "" });
   const skipNextAnswerSave = useRef(false);
 
-  const completedDiagnostics = diagnostics.filter((diagnostic) => diagnostic.status === "Completo" && diagnostic.result);
-  const localAdminDiagnostics: AdminDiagnosticRecord[] = completedDiagnostics.map((diagnostic) => {
-    const company = companies.find((item) => item.id === diagnostic.companyId);
-    return {
-      id: diagnostic.id,
-      companyId: diagnostic.companyId,
-      companyName: company?.name || "Empresa",
-      companySector: company?.sector || "Sin sector",
-      completedAt: diagnostic.result!.completedAt,
-      result: diagnostic.result!,
-      source: "local",
-    };
-  });
   const latestSavedByCompany = new Map(savedAdminDiagnostics.map((diagnostic) => [diagnostic.companyId, diagnostic]));
-  const adminLatestDiagnostics = [
-    ...latestSavedByCompany.values(),
-    ...localAdminDiagnostics.filter((diagnostic) => !latestSavedByCompany.has(diagnostic.companyId)),
-  ];
+  const adminLatestDiagnostics = [...latestSavedByCompany.values()];
   const selectedCompany = selectedAdminCompany?.id === selectedCompanyId ? selectedAdminCompany : (companies.find((company) => company.id === selectedCompanyId) ?? companies[0]);
   const selectedDiagnostic = adminLatestDiagnostics.find((diagnostic) => diagnostic.companyId === selectedCompany.id);
   const showcaseDiagnostic = selectedDiagnostic?.result ?? null;
@@ -566,17 +550,17 @@ function App() {
     const average = Math.round(adminLatestDiagnostics.reduce((sum, diagnostic) => sum + diagnostic.result.percentage, 0) / Math.max(adminLatestDiagnostics.length, 1));
     const highRisk = adminLatestDiagnostics.filter((diagnostic) => diagnostic.result.percentage < 50).length;
     const solid = adminLatestDiagnostics.filter((diagnostic) => diagnostic.result.percentage >= 85).length;
-    const advisory = companies.filter((company) => company.interestedInAdvisory).length;
-    const pending = Math.max(companies.length - adminLatestDiagnostics.length, 0);
+    const advisory = 0;
+    const pending = 0;
     const moduleAverages = diagnosticModules.map((module) => {
       const values = adminLatestDiagnostics
         .map((diagnostic) => diagnostic.result.moduleScores.find((score) => score.moduleId === module.id)?.percentage)
         .filter((value): value is number => typeof value === "number");
       return { title: module.title, value: Math.round(values.reduce((sum, value) => sum + value, 0) / Math.max(values.length, 1)) };
     });
-    const sectors = [...new Set([...companies.map((company) => company.sector), ...adminLatestDiagnostics.map((diagnostic) => diagnostic.companySector)])].map((sector) => ({
+    const sectors = [...new Set(adminLatestDiagnostics.map((diagnostic) => diagnostic.companySector))].map((sector) => ({
       sector,
-      count: adminLatestDiagnostics.filter((diagnostic) => diagnostic.companySector === sector).length || companies.filter((company) => company.sector === sector).length,
+      count: adminLatestDiagnostics.filter((diagnostic) => diagnostic.companySector === sector).length,
       average: Math.round(
         adminLatestDiagnostics
           .filter((diagnostic) => diagnostic.companySector === sector)
@@ -1821,15 +1805,28 @@ function AccessMessageBlock({ request }: { request: AccessRequestRecord }) {
 }
 
 function AdminDashboard({ stats, diagnostics: adminDiagnostics, onNavigate }: { stats: any; diagnostics: AdminDiagnosticRecord[]; onNavigate: (tab: AdminTab) => void }) {
+  const [registeredCompanies, setRegisteredCompanies] = useState<AdminCompany[]>([]);
+  useEffect(() => {
+    let mounted = true;
+    listCompanies()
+      .then((items) => {
+        if (mounted) setRegisteredCompanies(items.map((item) => mapCompanyRecord(item)));
+      })
+      .catch((error) => console.error("No fue posible consultar el padrón para el panel.", error));
+    return () => {
+      mounted = false;
+    };
+  }, []);
   const immediate = adminDiagnostics.filter((diagnostic) => getComplianceLevel(diagnostic.result.percentage).key === "immediate").length;
-  const incomplete = companies.filter((company) => !company.email).length;
+  const incomplete = registeredCompanies.filter((company) => !company.email).length;
+  const totalCompanies = registeredCompanies.length;
   return (
     <>
       <SectionTitle title="Panel general COPARMEX" subtitle="Visión ejecutiva de empresas participantes, madurez empresarial y brechas regionales." />
       <div className="kpi-grid">
-        <Kpi icon={<Building2 />} label="Total de empresas registradas" value={companies.length} />
+        <Kpi icon={<Building2 />} label="Total de empresas registradas" value={totalCompanies} />
         <Kpi icon={<CheckCircle2 />} label="Con autodiagnóstico" value={adminDiagnostics.length} />
-        <Kpi icon={<ClipboardList />} label="Empresas pendientes" value={Math.max(companies.length - adminDiagnostics.length, 0)} />
+        <Kpi icon={<ClipboardList />} label="Empresas pendientes" value={Math.max(totalCompanies - adminDiagnostics.length, 0)} />
         <Kpi icon={<BarChart3 />} label="Promedio general ICE" value={`${stats.average}%`} />
         <Kpi icon={<ShieldCheck />} label="Empresas en riesgo crítico" value={stats.highRisk} />
         <Kpi icon={<UserRoundCheck />} label="Atención inmediata" value={immediate} />
@@ -2523,17 +2520,21 @@ function CompanyDetail({ company, result, onBack, onPdf }: { company: CompanyPro
 }
 
 function RegionalStats({ stats, compact = false }: { stats: any; compact?: boolean }) {
+  const completed = stats.diagnostics.length;
+  const mature = stats.diagnostics.filter((diagnostic: AdminDiagnosticRecord) => getComplianceLevel(diagnostic.result.percentage).key === "mature").length;
+  const opportunity = stats.diagnostics.filter((diagnostic: AdminDiagnosticRecord) => getComplianceLevel(diagnostic.result.percentage).key === "opportunity").length;
+  const priority = stats.diagnostics.filter((diagnostic: AdminDiagnosticRecord) => diagnostic.result.percentage < 70).length;
   return (
     <section className={compact ? "" : "page"}>
       <SectionTitle title="Índice de Competitividad Empresarial de Nuevo Laredo" subtitle={platformContentConfig.regionalIndicator.description} />
       <div className="kpi-grid">
-        <Kpi icon={<FileText />} label="Libros corporativos actualizados" value="46%" />
-        <Kpi icon={<ShieldCheck />} label="Poderes notariales vigentes" value="63%" />
-        <Kpi icon={<UserRoundCheck />} label="Acuerdos entre socios" value="41%" />
-        <Kpi icon={<LockKeyhole />} label="Beneficiario controlador" value="58%" />
+        <Kpi icon={<CheckCircle2 />} label="Autodiagnósticos reales" value={completed} />
+        <Kpi icon={<BarChart3 />} label="Promedio general ICE" value={`${stats.average}%`} />
+        <Kpi icon={<ShieldCheck />} label="Empresas prioritarias" value={priority} />
+        <Kpi icon={<UserRoundCheck />} label="Maduras / oportunidad" value={mature + opportunity} />
       </div>
       <div className="dashboard-grid">
-        <ChartBlock title="Promedio de cumplimiento por sector" data={stats.sectors.map((sector: any) => ({ title: sector.sector, value: sector.average || 18 }))} />
+        <ChartBlock title="Promedio de cumplimiento por sector" data={stats.sectors.map((sector: any) => ({ title: sector.sector, value: sector.average }))} />
         <ChartBlock title="Secciones con menor calificación" data={[...stats.moduleAverages].sort((a, b) => a.value - b.value).slice(0, 5)} />
         <LevelDistribution diagnostics={stats.diagnostics} />
       </div>
@@ -3313,6 +3314,13 @@ function ReportsPanelV3({ diagnostics: adminDiagnostics }: { diagnostics: AdminD
     "Semáforo de cumplimiento": row.semaphore,
     Observaciones: row.observations,
   }));
+  const aggregateExportRows = [
+    { Indicador: "Empresas registradas", Valor: rows.length },
+    { Indicador: "Empresas con autodiagnóstico real", Valor: diagnosedRows.length },
+    { Indicador: "Empresas sin autodiagnóstico", Valor: rows.length - diagnosedRows.length },
+    { Indicador: "Promedio general ICE", Valor: `${average}%` },
+    { Indicador: "Empresas prioritarias", Valor: priorityRows.length },
+  ];
 
   return (
     <section className="reports-functional">
@@ -3326,6 +3334,16 @@ function ReportsPanelV3({ diagnostics: adminDiagnostics }: { diagnostics: AdminD
       </div>
       {reportType === "aggregate" ? (
         <>
+          <div className="card report-intro-card">
+            <div>
+              <h3>Reporte agregado ICE</h3>
+              <p className="muted">Indicadores calculados únicamente con autodiagnósticos reales guardados.</p>
+            </div>
+            <div className="report-export-actions">
+              <button className="secondary" onClick={() => exportCsv("reporte-agregado-ice.csv", aggregateExportRows)}><Download size={17} /> Descargar CSV</button>
+              <button className="primary" onClick={() => exportExcel("reporte-agregado-ice.xlsx", "Reporte agregado ICE", aggregateExportRows)}><FileSpreadsheet size={17} /> Descargar Excel</button>
+            </div>
+          </div>
           <div className="kpi-grid report-kpis">
             <Kpi icon={<Building2 />} label="Empresas registradas" value={rows.length} />
             <Kpi icon={<CheckCircle2 />} label="Con autodiagnóstico" value={diagnosedRows.length} />
@@ -3346,7 +3364,7 @@ function ReportsPanelV3({ diagnostics: adminDiagnostics }: { diagnostics: AdminD
             </div>
             <div className="report-export-actions">
               <button className="secondary" onClick={() => exportCsv(reportType === "priority" ? "atencion-prioritaria.csv" : "reporte-empresas.csv", exportRows)}><Download size={17} /> Descargar CSV</button>
-              <button className="primary" onClick={() => exportExcel(reportType === "priority" ? "atencion-prioritaria.xls" : "reporte-empresas.xls", reportType === "priority" ? "Atención prioritaria" : "Reporte de empresas", exportRows)}><FileSpreadsheet size={17} /> Descargar Excel</button>
+              <button className="primary" onClick={() => exportExcel(reportType === "priority" ? "atencion-prioritaria.xlsx" : "reporte-empresas.xlsx", reportType === "priority" ? "Atención prioritaria" : "Reporte de empresas", exportRows)}><FileSpreadsheet size={17} /> Descargar Excel</button>
             </div>
           </div>
           <div className="card admin-filter-bar report-filter-bar">
@@ -3680,43 +3698,80 @@ function exportCsv(filename: string, rows: Record<string, unknown>[]) {
   URL.revokeObjectURL(url);
 }
 
-function exportExcel(filename: string, title: string, rows: Record<string, unknown>[]) {
+async function exportExcel(filename: string, title: string, rows: Record<string, unknown>[]) {
   if (!rows.length) return;
+  const XLSX = await import("xlsx-js-style");
   const headers = Object.keys(rows[0]);
-  const escapeHtml = (value: unknown) => String(value ?? "Sin dato").replace(/[&<>"']/g, (character) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#039;",
-  }[character] ?? character));
-  const headerCells = headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("");
-  const bodyRows = rows.map((row) => `<tr>${headers.map((header) => `<td>${escapeHtml(row[header])}</td>`).join("")}</tr>`).join("");
-  const html = `<!doctype html>
-<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
-<head>
-<meta charset="utf-8">
-<style>
-body{font-family:Arial,sans-serif;color:#102d4d}
-h1{color:#09284a;font-size:20pt;margin-bottom:4px}
-p{color:#5f748c;font-size:10pt}
-table{border-collapse:collapse;table-layout:auto}
-th{background:#09284a;color:#fff;font-weight:bold;border:1px solid #d7e1ec;padding:9px;white-space:nowrap}
-td{border:1px solid #d7e1ec;padding:8px;vertical-align:top;white-space:normal}
-tr:nth-child(even) td{background:#eef4fb}
-</style>
-</head>
-<body>
-<h1>${escapeHtml(title)}</h1>
-<p>COPARMEX Nuevo Laredo · Índice de Competitividad Empresarial · ${escapeHtml(new Date().toLocaleDateString("es-MX"))}</p>
-<table><thead><tr>${headerCells}</tr></thead><tbody>${bodyRows}</tbody></table>
-</body></html>`;
-  const url = URL.createObjectURL(new Blob(["\uFEFF", html], { type: "application/vnd.ms-excel;charset=utf-8" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
+  const data = [
+    [title],
+    [`COPARMEX Nuevo Laredo · Índice de Competitividad Empresarial · ${new Date().toLocaleDateString("es-MX")}`],
+    [],
+    headers,
+    ...rows.map((row) => headers.map((header) => row[header] ?? "Sin dato")),
+  ];
+  const worksheet = XLSX.utils.aoa_to_sheet(data);
+  const lastColumn = XLSX.utils.encode_col(Math.max(headers.length - 1, 0));
+  worksheet["!merges"] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: Math.max(headers.length - 1, 0) } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: Math.max(headers.length - 1, 0) } },
+  ];
+  worksheet["!autofilter"] = { ref: `A4:${lastColumn}${rows.length + 4}` };
+  worksheet["!cols"] = headers.map((header) => {
+    const contentLength = Math.max(header.length, ...rows.map((row) => String(row[header] ?? "Sin dato").length));
+    return { wch: Math.min(Math.max(contentLength + 3, 12), 42) };
+  });
+  worksheet["!rows"] = [{ hpt: 28 }, { hpt: 20 }, { hpt: 8 }, { hpt: 22 }];
+  worksheet["!freeze"] = { xSplit: 0, ySplit: 4, topLeftCell: "A5", activePane: "bottomLeft", state: "frozen" };
+  const border = {
+    top: { style: "thin", color: { rgb: "D7E1EC" } },
+    bottom: { style: "thin", color: { rgb: "D7E1EC" } },
+    left: { style: "thin", color: { rgb: "D7E1EC" } },
+    right: { style: "thin", color: { rgb: "D7E1EC" } },
+  };
+  worksheet.A1.s = {
+    font: { bold: true, sz: 18, color: { rgb: "FFFFFF" } },
+    fill: { patternType: "solid", fgColor: { rgb: "09284A" } },
+    alignment: { vertical: "center", horizontal: "left" },
+  };
+  worksheet.A2.s = {
+    font: { italic: true, sz: 10, color: { rgb: "5F748C" } },
+    alignment: { vertical: "center", horizontal: "left" },
+  };
+  headers.forEach((_, columnIndex) => {
+    const headerCell = worksheet[XLSX.utils.encode_cell({ r: 3, c: columnIndex })];
+    if (headerCell) {
+      headerCell.s = {
+        font: { bold: true, color: { rgb: "FFFFFF" } },
+        fill: { patternType: "solid", fgColor: { rgb: "0868B7" } },
+        alignment: { vertical: "center", horizontal: "center", wrapText: true },
+        border,
+      };
+    }
+  });
+  rows.forEach((_, rowIndex) => {
+    headers.forEach((__, columnIndex) => {
+      const cell = worksheet[XLSX.utils.encode_cell({ r: rowIndex + 4, c: columnIndex })];
+      if (cell) {
+        cell.s = {
+          font: { color: { rgb: "102D4D" } },
+          fill: { patternType: "solid", fgColor: { rgb: rowIndex % 2 === 0 ? "FFFFFF" : "EEF4FB" } },
+          alignment: { vertical: "top", horizontal: "left", wrapText: true },
+          border,
+        };
+      }
+    });
+  });
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Reporte");
+  workbook.Props = {
+    Title: title,
+    Subject: "Índice de Competitividad Empresarial",
+    Author: "COPARMEX Nuevo Laredo",
+    Company: "COPARMEX Nuevo Laredo",
+    CreatedDate: new Date(),
+  };
+  XLSX.writeFile(workbook, filename, { compression: true });
 }
 
 function ConfigPanel() {
