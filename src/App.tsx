@@ -37,6 +37,7 @@ import { CompanyImportRow, DuplicateMode, parseCompanyImportFile } from "./utils
 type View = "landing" | "about" | "login" | "loginEmpresa" | "loginAdmin" | "requestAccess" | "register" | "questionnaire" | "result" | "company" | "admin" | "stats" | "detail";
 type CompanyTab = "dashboard" | "autodiagnostico" | "resultado" | "recomendaciones" | "observaciones" | "perfil" | "documentacion";
 type AdminTab = "panel" | "empresas" | "solicitudes" | "diagnosticos" | "estadisticas" | "observaciones" | "reportes" | "configuracion";
+type AdminIntent = "import-companies" | "pending-companies" | "priority-report" | "companies-report" | null;
 type Session = { isAuthenticated: boolean; role: "empresa" | "admin" | null; companyId?: string; adminName?: string };
 type AnswerState = Record<string, SelectedDiagnosticOption>;
 type AdminCompany = CompanyProfile & { accessStatus?: string; authUid?: string; folio?: string; rfc?: string; numeroSocio?: string; nombreEmpresa?: string; correo?: string; numeroEmpleados?: number | null; tamanoEmpresa?: string | null; mustChangePassword?: boolean; source?: "firestore" | "mock" };
@@ -1568,16 +1569,21 @@ function CompanyPortal({ tab, setTab, company, result, loadingResult, resultErro
 
 function AdminPortal(props: { tab: AdminTab; setTab: (tab: AdminTab) => void; stats: any; selectedCompanyId: string; setSelectedCompanyId: (id: string) => void; setSelectedAdminCompany: (company: AdminCompany | null) => void; setView: (view: View) => void; onPdf: () => void; diagnostics: AdminDiagnosticRecord[]; diagnosticsLoading: boolean; diagnosticsError: string }) {
   const tabs: AdminTab[] = ["panel", "empresas", "estadisticas", "observaciones", "reportes", "configuracion"];
+  const [intent, setIntent] = useState<AdminIntent>(null);
+  const navigate = (tab: AdminTab, nextIntent: AdminIntent = null) => {
+    setIntent(nextIntent);
+    props.setTab(tab);
+  };
   return (
     <section className="portal">
-      <Sidebar title="Panel administrativo" items={tabs} active={props.tab} onSelect={props.setTab} />
+      <Sidebar title="Panel administrativo" items={tabs} active={props.tab} onSelect={(tab) => navigate(tab)} />
       <div className="portal-content">
-        {props.tab === "panel" && <AdminDashboard stats={props.stats} diagnostics={props.diagnostics} onNavigate={props.setTab} />}
-        {props.tab === "empresas" && <CompaniesTable diagnostics={props.diagnostics} setSelectedCompanyId={props.setSelectedCompanyId} setSelectedAdminCompany={props.setSelectedAdminCompany} setView={props.setView} onPdf={props.onPdf} />}
+        {props.tab === "panel" && <AdminDashboard stats={props.stats} diagnostics={props.diagnostics} onNavigate={navigate} />}
+        {props.tab === "empresas" && <CompaniesTable intent={intent} diagnostics={props.diagnostics} setSelectedCompanyId={props.setSelectedCompanyId} setSelectedAdminCompany={props.setSelectedAdminCompany} setView={props.setView} onPdf={props.onPdf} />}
         {props.tab === "solicitudes" && <AccessRequestsPanel />}
         {props.tab === "estadisticas" && <RegionalStats stats={props.stats} compact />}
         {props.tab === "observaciones" && <AllObservations />}
-        {props.tab === "reportes" && <ReportsPanelV3 diagnostics={props.diagnostics} />}
+        {props.tab === "reportes" && <ReportsPanelV3 intent={intent} diagnostics={props.diagnostics} />}
         {props.tab === "configuracion" && <ConfigPanel />}
       </div>
     </section>
@@ -1804,7 +1810,7 @@ function AccessMessageBlock({ request }: { request: AccessRequestRecord }) {
   );
 }
 
-function AdminDashboard({ stats, diagnostics: adminDiagnostics, onNavigate }: { stats: any; diagnostics: AdminDiagnosticRecord[]; onNavigate: (tab: AdminTab) => void }) {
+function AdminDashboard({ stats, diagnostics: adminDiagnostics, onNavigate }: { stats: any; diagnostics: AdminDiagnosticRecord[]; onNavigate: (tab: AdminTab, intent?: AdminIntent) => void }) {
   const [registeredCompanies, setRegisteredCompanies] = useState<AdminCompany[]>([]);
   useEffect(() => {
     let mounted = true;
@@ -1833,10 +1839,10 @@ function AdminDashboard({ stats, diagnostics: adminDiagnostics, onNavigate }: { 
         <Kpi icon={<FileText />} label="Datos incompletos" value={incomplete} />
       </div>
       <div className="admin-quick-actions">
-        <button className="secondary" onClick={() => onNavigate("empresas")}><Upload size={17} /> Importar empresas</button>
-        <button className="secondary" onClick={() => onNavigate("empresas")}><ClipboardList size={17} /> Ver empresas pendientes</button>
-        <button className="secondary" onClick={() => onNavigate("reportes")}><ShieldCheck size={17} /> Ver atención prioritaria</button>
-        <button className="secondary" onClick={() => onNavigate("reportes")}><FileSpreadsheet size={17} /> Reporte de empresas</button>
+        <button className="secondary" onClick={() => onNavigate("empresas", "import-companies")}><Upload size={17} /> Importar empresas</button>
+        <button className="secondary" onClick={() => onNavigate("empresas", "pending-companies")}><ClipboardList size={17} /> Ver empresas pendientes</button>
+        <button className="secondary" onClick={() => onNavigate("reportes", "priority-report")}><ShieldCheck size={17} /> Ver atención prioritaria</button>
+        <button className="secondary" onClick={() => onNavigate("reportes", "companies-report")}><FileSpreadsheet size={17} /> Reporte de empresas</button>
       </div>
       <div className="dashboard-grid">
         <ChartBlock title="Promedio por sección" data={stats.moduleAverages} />
@@ -1913,7 +1919,7 @@ function EmptyDiagnosticState({ company, onStart, loading, error }: { company: C
   );
 }
 
-function CompaniesTable({ diagnostics: adminDiagnostics, setSelectedCompanyId, setSelectedAdminCompany, setView, onPdf }: { diagnostics: AdminDiagnosticRecord[]; setSelectedCompanyId: (id: string) => void; setSelectedAdminCompany: (company: AdminCompany | null) => void; setView: (view: View) => void; onPdf: () => void }) {
+function CompaniesTable({ intent, diagnostics: adminDiagnostics, setSelectedCompanyId, setSelectedAdminCompany, setView, onPdf }: { intent: AdminIntent; diagnostics: AdminDiagnosticRecord[]; setSelectedCompanyId: (id: string) => void; setSelectedAdminCompany: (company: AdminCompany | null) => void; setView: (view: View) => void; onPdf: () => void }) {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [firestoreCompanies, setFirestoreCompanies] = useState<AdminCompany[]>([]);
   const [loadingCompanies, setLoadingCompanies] = useState(false);
@@ -1943,6 +1949,16 @@ function CompaniesTable({ diagnostics: adminDiagnostics, setSelectedCompanyId, s
   });
 
   useEffect(() => {
+    if (intent === "pending-companies") {
+      setDiagnosticFilter("No");
+      window.requestAnimationFrame(() => document.querySelector(".admin-filter-bar")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    }
+    if (intent === "import-companies") {
+      window.requestAnimationFrame(() => document.querySelector("#company-import-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    }
+  }, [intent]);
+
+  useEffect(() => {
     let mounted = true;
     setLoadingCompanies(true);
     listCompanies()
@@ -1964,12 +1980,9 @@ function CompaniesTable({ diagnostics: adminDiagnostics, setSelectedCompanyId, s
   }, [companiesRefreshKey]);
 
 
-  const displayCompanies: AdminCompany[] = [
-    ...firestoreCompanies,
-    ...companies
-      .filter((company) => !firestoreCompanies.some((item) => item.id === company.id))
-      .map((company) => ({ ...company, source: "mock" as const })),
-  ];
+  const displayCompanies: AdminCompany[] = firestoreCompanies.length
+    ? firestoreCompanies
+    : companies.map((company) => ({ ...company, source: "mock" as const }));
 
   const companyRows = displayCompanies.map((company) => ({
     company,
@@ -2392,7 +2405,7 @@ function CompanyImportPanel({ existingCompanies, onImported }: { existingCompani
   };
 
   return (
-    <section className="card company-import-card">
+    <section className="card company-import-card" id="company-import-panel">
       <div className="section-title-row company-import-heading">
         <div>
           <span className="eyebrow">Carga masiva</span>
@@ -3195,8 +3208,8 @@ type AdministrativeReportRow = {
   attentionReason: string;
 };
 
-function ReportsPanelV3({ diagnostics: adminDiagnostics }: { diagnostics: AdminDiagnosticRecord[] }) {
-  const [reportType, setReportType] = useState<"companies" | "aggregate" | "priority">("companies");
+function ReportsPanelV3({ intent, diagnostics: adminDiagnostics }: { intent: AdminIntent; diagnostics: AdminDiagnosticRecord[] }) {
+  const [reportType, setReportType] = useState<"companies" | "aggregate" | "priority">(() => intent === "priority-report" ? "priority" : "companies");
   const [systemCompanies, setSystemCompanies] = useState<AdminCompany[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -3207,6 +3220,11 @@ function ReportsPanelV3({ diagnostics: adminDiagnostics }: { diagnostics: AdminD
   const [sizeFilter, setSizeFilter] = useState("Todos");
   const [observationFilter, setObservationFilter] = useState("Todas");
   const [sortBy, setSortBy] = useState("Empresa");
+
+  useEffect(() => {
+    if (intent === "priority-report") setReportType("priority");
+    if (intent === "companies-report") setReportType("companies");
+  }, [intent]);
 
   useEffect(() => {
     let mounted = true;
