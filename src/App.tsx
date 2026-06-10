@@ -2,9 +2,13 @@ import {
   BarChart3,
   Building2,
   CheckCircle2,
+  ChevronDown,
+  CircleHelp,
   ClipboardList,
   Download,
   Eye,
+  ExternalLink,
+  FileSpreadsheet,
   FileText,
   LayoutDashboard,
   LockKeyhole,
@@ -13,31 +17,74 @@ import {
   MessageSquarePlus,
   ShieldCheck,
   UserRoundCheck,
+  Upload,
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { diagnosticICE } from "./data/diagnosticICE";
 import { diagnosticResponseBank } from "./data/diagnosticResponseBank";
-import { activityLog, companies, diagnostics, documents, observations, roles } from "./data/mockData";
+import { getComplianceLevel, platformContentConfig } from "./data/platformContentConfig";
+import { activityLog, companies, diagnostics, documents, observations } from "./data/mockData";
 import { CompanyProfile, DiagnosticResult, SelectedDiagnosticOption } from "./types";
 import { changeCurrentUserPassword, loginWithEmail, listenAuthState, logout as firebaseLogout, registerWithEmail, sendRecoveryEmail } from "./services/authService";
 import { createCompany, getCompanyByAuthUid, getCompanyByFolio, listCompanies, updateCompany } from "./services/companiesService";
 import { listAccessRequests, saveAccessRequest, updateAccessRequestStatus, type AccessRequestRecord } from "./services/accessRequestsService";
 import { getResponsesByCompany, listDiagnosticResponses, saveDiagnosticResponse } from "./services/diagnosticResponsesService";
 import { createObservation, getObservationsByCompany, listObservations, type ObservationRecord } from "./services/observationsService";
-import { calculateDiagnostic, trafficLabel } from "./utils/scoring";
+import { calculateDiagnostic } from "./utils/scoring";
+import { CompanyImportRow, DuplicateMode, parseCompanyImportFile } from "./utils/companyImport";
 
 type View = "landing" | "about" | "login" | "loginEmpresa" | "loginAdmin" | "requestAccess" | "register" | "questionnaire" | "result" | "company" | "admin" | "stats" | "detail";
 type CompanyTab = "dashboard" | "autodiagnostico" | "resultado" | "recomendaciones" | "observaciones" | "perfil" | "documentacion";
 type AdminTab = "panel" | "empresas" | "solicitudes" | "diagnosticos" | "estadisticas" | "observaciones" | "reportes" | "configuracion";
 type Session = { isAuthenticated: boolean; role: "empresa" | "admin" | null; companyId?: string; adminName?: string };
 type AnswerState = Record<string, SelectedDiagnosticOption>;
-type AdminCompany = CompanyProfile & { accessStatus?: string; authUid?: string; folio?: string; mustChangePassword?: boolean; source?: "firestore" | "mock" };
+type AdminCompany = CompanyProfile & { accessStatus?: string; authUid?: string; folio?: string; rfc?: string; numeroSocio?: string; nombreEmpresa?: string; correo?: string; numeroEmpleados?: number | null; tamanoEmpresa?: string | null; mustChangePassword?: boolean; source?: "firestore" | "mock" };
 type AppRoute = { view: View; companyTab?: CompanyTab; adminTab?: AdminTab; privateRole?: "empresa" | "admin" };
 type AdminDiagnosticRecord = { id: string; companyId: string; companyName: string; companySector: string; completedAt: string; result: DiagnosticResult; source: "saved" | "local" };
+type PresidentLetter = { title: string; presidentName: string; presidentRole: string; body: string };
 
 const diagnosticModules = diagnosticICE.modules.slice().sort((a, b) => a.order - b.order);
 const diagnosticQuestions = diagnosticModules.flatMap((module) => module.questions.slice().sort((a, b) => a.order - b.order));
+const presidentLetterStorageKey = "icePresidentLetter";
+const defaultPresidentLetter: PresidentLetter = {
+  title: "Carta de bienvenida COPARMEX",
+  presidentName: "Presidencia COPARMEX Nuevo Laredo",
+  presidentRole: "COPARMEX Nuevo Laredo",
+  body: "En COPARMEX Nuevo Laredo creemos que una empresa más organizada, institucional y preparada fortalece su capacidad para crecer, generar empleo y contribuir al desarrollo de nuestra comunidad.\n\nEl Índice de Competitividad Empresarial busca acompañar a las empresas afiliadas en la identificación de fortalezas y áreas de oportunidad, brindando una lectura clara que facilite decisiones y acciones de mejora.\n\nTe invitamos a responder este autodiagnóstico con apertura y visión de futuro.",
+};
+const getPresidentLetter = (): PresidentLetter => {
+  if (typeof window === "undefined") return defaultPresidentLetter;
+  try {
+    return { ...defaultPresidentLetter, ...JSON.parse(window.localStorage.getItem(presidentLetterStorageKey) || "{}") };
+  } catch {
+    return defaultPresidentLetter;
+  }
+};
+const escapeLetterHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[character] ?? character));
+const openPresidentLetter = () => {
+  const letter = getPresidentLetter();
+  const paragraphs = letter.body.split(/\n\s*\n/).filter(Boolean).map((paragraph) => `<p>${escapeLetterHtml(paragraph).replace(/\n/g, "<br>")}</p>`).join("");
+  const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${escapeLetterHtml(letter.title)}</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;background:#f3f6fa;color:#102d4d;font-family:Arial,sans-serif}.page{width:min(760px,calc(100% - 32px));margin:40px auto;padding:42px;background:white;border-top:6px solid #0868b7;box-shadow:0 18px 50px rgba(9,40,74,.12)}h1{margin:0 0 26px;font-size:34px}p{line-height:1.7;color:#334e68}.signature{margin-top:34px;padding-top:20px;border-top:1px solid #d8e2ed}.signature strong,.signature span{display:block}.signature span{margin-top:5px;color:#667b91}@media(max-width:600px){.page{margin:16px auto;padding:24px}h1{font-size:27px}}</style></head><body><main class="page"><h1>${escapeLetterHtml(letter.title)}</h1>${paragraphs}<div class="signature"><strong>${escapeLetterHtml(letter.presidentName)}</strong><span>${escapeLetterHtml(letter.presidentRole)}</span></div></main></body></html>`;
+  const letterUrl = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+  window.open(letterUrl, "_blank", "noopener,noreferrer");
+  window.setTimeout(() => URL.revokeObjectURL(letterUrl), 60_000);
+};
+const answerDisplayOrder = (label: string) => {
+  const normalized = label.trim().toLocaleLowerCase("es-MX");
+  if (normalized === "sí" || normalized.startsWith("sí,")) return 0;
+  if (normalized === "no") return 1;
+  if (normalized === "parcial") return 2;
+  if (normalized === "no aplica") return 3;
+  return 4;
+};
+const answerVisualTone = (label: string) => {
+  const normalized = label.trim().toLocaleLowerCase("es-MX");
+  if (normalized === "sí" || normalized.startsWith("sí,")) return "answer-positive";
+  if (normalized === "no") return "answer-negative";
+  if (normalized === "parcial" || normalized === "esporádicamente" || normalized === "a veces") return "answer-partial";
+  return "answer-neutral";
+};
 const toUpperText = (value: unknown) => String(value || "").toLocaleUpperCase("es-MX");
 const normalizeEmail = (value: unknown) => String(value || "").trim().toLowerCase();
 const normalizePhone = (value: unknown) => String(value || "").replace(/\D/g, "").slice(0, 10);
@@ -131,6 +178,12 @@ function mapCompanyRecord(item: Record<string, any>): AdminCompany {
     interestedInAdvisory: Boolean(item.interestedInAdvisory),
     accessStatus: String(item.accessStatus || "active"),
     authUid: item.authUid ? String(item.authUid) : undefined,
+    rfc: item.rfc ? String(item.rfc) : undefined,
+    numeroSocio: item.numeroSocio ? String(item.numeroSocio) : undefined,
+    nombreEmpresa: item.nombreEmpresa ? String(item.nombreEmpresa) : undefined,
+    correo: item.correo ? String(item.correo) : undefined,
+    numeroEmpleados: typeof item.numeroEmpleados === "number" ? item.numeroEmpleados : null,
+    tamanoEmpresa: item.tamanoEmpresa ? String(item.tamanoEmpresa) : undefined,
     mustChangePassword: Boolean(item.mustChangePassword),
     source: "firestore",
   };
@@ -169,6 +222,22 @@ function getCompanyFolio(company: CompanyProfile | AdminCompany) {
   return "folio" in company && typeof company.folio === "string" && company.folio ? company.folio : company.id;
 }
 
+function getCompanyEmployeeCount(company: CompanyProfile | AdminCompany) {
+  if ("numeroEmpleados" in company && typeof company.numeroEmpleados === "number") return company.numeroEmpleados;
+  const values = String(company.employees || "").match(/\d+/g)?.map(Number) ?? [];
+  return values.length ? Math.max(...values) : null;
+}
+
+function getCompanySize(company: CompanyProfile | AdminCompany) {
+  if ("tamanoEmpresa" in company && company.tamanoEmpresa) return company.tamanoEmpresa;
+  const employees = getCompanyEmployeeCount(company);
+  if (employees === null) return "No calculado";
+  if (employees <= 10) return "Micro";
+  if (employees <= 50) return "Pequeña";
+  if (employees <= 100) return "Mediana";
+  return "Grande";
+}
+
 function getAnswerStorageKey(companyId: string) {
   return `ice-diagnostic-answers-${companyId}`;
 }
@@ -181,7 +250,7 @@ function getAccessMessage(request: AccessRequestRecord) {
   const greetingName = request.contactName || request.companyName;
   return `Hola, ${greetingName}.
 
-Tu solicitud de acceso al Diagnóstico ICE COPARMEX fue aprobada.
+Tu solicitud de acceso al Autodiagnóstico ICE COPARMEX fue aprobada.
 
 Usuario: ${request.email}
 
@@ -241,13 +310,15 @@ function mapDiagnosticResponse(item: Record<string, any>): DiagnosticResult {
     findings: calculated?.findings ?? [],
     recommendations: calculated?.recommendations ?? [],
     completedAt: typeof item.completedAt === "string" ? item.completedAt : new Date().toISOString(),
+    diagnosticVersion: item.diagnosticVersion ? String(item.diagnosticVersion) : undefined,
+    scoringVersion: item.scoringVersion ? String(item.scoringVersion) : undefined,
   };
 }
 
 function mapAdminDiagnosticRecord(item: Record<string, any>): AdminDiagnosticRecord {
   const result = mapDiagnosticResponse(item);
   return {
-    id: String(item.id || item.diagnosticId || "Diagnóstico"),
+    id: String(item.id || item.diagnosticId || "Autodiagnóstico"),
     companyId: String(item.companyId || ""),
     companyName: String(item.companyName || "Empresa"),
     companySector: String(item.companySector || "Sin sector"),
@@ -317,7 +388,7 @@ function App() {
   const sessionCompany = authenticatedCompany ?? companies.find((company) => company.id === session.companyId);
   const activeCompany = sessionCompany ?? (profile.name ? profile : companies[0]);
   const activeDiagnostic = diagnostics.find((diagnostic) => diagnostic.companyId === activeCompany.id && diagnostic.result);
-  const activeResult = result ?? latestCompanyResult ?? (authenticatedCompany ? null : (activeDiagnostic?.result ?? completedDiagnostics[0].result!));
+  const activeResult = result ?? latestCompanyResult ?? (authenticatedCompany ? null : (activeDiagnostic?.result ?? null));
   const activeCompanyId = activeCompany.id;
   const requiresPasswordChange = false;
   const currentQuestions = diagnosticModules[currentModule].questions.slice().sort((a, b) => a.order - b.order);
@@ -363,7 +434,7 @@ function App() {
       .catch((error) => {
         if (!mounted) return;
         setLatestCompanyResult(null);
-        setLatestResultError(getFriendlyErrorMessage(error, "No fue posible consultar diagnósticos guardados."));
+        setLatestResultError(getFriendlyErrorMessage(error, "No fue posible consultar autodiagnósticos guardados."));
       })
       .finally(() => {
         if (mounted) setLatestResultLoading(false);
@@ -398,7 +469,7 @@ function App() {
       .catch((error) => {
         if (!mounted) return;
         setSavedAdminDiagnostics([]);
-        setAdminDiagnosticsError(getFriendlyErrorMessage(error, "No fue posible consultar diagnósticos guardados."));
+        setAdminDiagnosticsError(getFriendlyErrorMessage(error, "No fue posible consultar autodiagnósticos guardados."));
       })
       .finally(() => {
         if (mounted) setAdminDiagnosticsLoading(false);
@@ -494,7 +565,7 @@ function App() {
   const stats = useMemo(() => {
     const average = Math.round(adminLatestDiagnostics.reduce((sum, diagnostic) => sum + diagnostic.result.percentage, 0) / Math.max(adminLatestDiagnostics.length, 1));
     const highRisk = adminLatestDiagnostics.filter((diagnostic) => diagnostic.result.percentage < 50).length;
-    const solid = adminLatestDiagnostics.filter((diagnostic) => diagnostic.result.percentage >= 70).length;
+    const solid = adminLatestDiagnostics.filter((diagnostic) => diagnostic.result.percentage >= 85).length;
     const advisory = companies.filter((company) => company.interestedInAdvisory).length;
     const pending = Math.max(companies.length - adminLatestDiagnostics.length, 0);
     const moduleAverages = diagnosticModules.map((module) => {
@@ -540,14 +611,16 @@ function App() {
         semaphore: nextResult.maturity.trafficLight,
         interpretation: nextResult.maturity.message,
         completedAt: nextResult.completedAt,
+        diagnosticVersion: nextResult.diagnosticVersion,
+        scoringVersion: nextResult.scoringVersion,
       });
       window.localStorage.removeItem(getAnswerStorageKey(activeCompany.id));
       skipNextAnswerSave.current = true;
       setAnswers({});
       setLatestCompanyResult(nextResult);
-      setSaveState({ loading: false, error: "", success: `Diagnóstico guardado correctamente. Folio de respuesta: ${responseId}` });
+      setSaveState({ loading: false, error: "", success: `Autodiagnóstico guardado correctamente. Folio de respuesta: ${responseId}` });
     } catch (error) {
-      const message = getFriendlyErrorMessage(error, "No fue posible guardar el diagnóstico en el sistema.");
+      const message = getFriendlyErrorMessage(error, "No fue posible guardar el autodiagnóstico en el sistema.");
       setSaveState({ loading: false, error: message, success: "" });
     }
   };
@@ -685,7 +758,7 @@ function App() {
       <main>
         {!authReady && <SessionRestoreScreen />}
         {authReady && view === "landing" && <Landing onPortal={() => setView("login")} onRequestAccess={() => setView("requestAccess")} />}
-        {authReady && view === "about" && <AboutIndex />}
+        {authReady && view === "about" && <AboutIndex onPortal={() => setView("login")} onRequestAccess={() => setView("requestAccess")} />}
         {authReady && view === "login" && <AccessHub onCompany={() => setView("loginEmpresa")} onAdmin={() => setView("loginAdmin")} />}
         {authReady && view === "loginEmpresa" && <CompanyLogin onLogin={loginCompany} />}
         {authReady && view === "loginAdmin" && <AdminLogin onLogin={loginAdmin} />}
@@ -705,7 +778,14 @@ function App() {
           />
         )}
         {authReady && !requiresPasswordChange && view === "result" && result && (
-          <ResultScreen company={activeCompany} result={result} saveState={saveState} onPdf={simulatePdf} onPortal={() => { setSession({ isAuthenticated: true, role: "empresa", companyId: session.companyId }); setView("company"); }} />
+          <ResultScreen
+            company={activeCompany}
+            result={result}
+            saveState={saveState}
+            onPdf={simulatePdf}
+            onPortal={() => { setSession({ isAuthenticated: true, role: "empresa", companyId: session.companyId }); setView("company"); }}
+            onRecommendations={() => { setSession({ isAuthenticated: true, role: "empresa", companyId: session.companyId }); setCompanyTab("recomendaciones"); setView("company"); }}
+          />
         )}
         {authReady && !requiresPasswordChange && view === "company" && session.role === "empresa" && (
           <CompanyPortal
@@ -838,41 +918,97 @@ function SessionRestoreScreen() {
 }
 
 function Landing({ onPortal, onRequestAccess }: { onPortal: () => void; onRequestAccess: () => void }) {
+  const [showWelcome, setShowWelcome] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("iceWelcomeDismissed") !== "true";
+  });
+  const dismissWelcome = () => {
+    window.localStorage.setItem("iceWelcomeDismissed", "true");
+    setShowWelcome(false);
+  };
+  const requestAccess = () => {
+    dismissWelcome();
+    onRequestAccess();
+  };
+
   return (
-    <section className="hero">
-      <div className="hero-copy">
-        <span className="eyebrow">Herramienta institucional COPARMEX Nuevo Laredo</span>
-        <h1>Índice de Competitividad Empresarial</h1>
-        <p>Diagnóstico de madurez corporativa para empresas afiliadas a COPARMEX Nuevo Laredo.</p>
-        <div className="hero-actions">
-          <button className="primary" onClick={onPortal}>Iniciar sesión</button>
-          <button className="secondary" onClick={onRequestAccess}>Obtener acceso</button>
+    <>
+      <section className="hero">
+        <div className="hero-copy">
+          <span className="eyebrow">Herramienta institucional COPARMEX Nuevo Laredo</span>
+          <h1>{platformContentConfig.generalTexts.welcomeTitle}</h1>
+          <p>Autodiagnóstico institucional para conocer el nivel de madurez, cumplimiento y organización documental de tu empresa.</p>
+          <div className="hero-actions">
+            <button className="primary" onClick={requestAccess}>Obtener acceso</button>
+            <button className="secondary" onClick={onPortal}>Iniciar sesión</button>
+          </div>
+          <div className="hero-info-chips" aria-label="Características del índice">
+            <span><ClipboardList size={17} /> Autodiagnóstico empresarial</span>
+            <span><ShieldCheck size={17} /> Semáforo de cumplimiento</span>
+            <span><CheckCircle2 size={17} /> Recomendaciones puntuales</span>
+          </div>
         </div>
-      </div>
-      <div className="hero-panel">
-        <div className="metric-large">7 a 10 min</div>
-        <p>Identifica áreas de riesgo, cumplimiento y oportunidad mediante módulos corporativos accionables.</p>
-        <div className="hero-grid">
-          {["Cumplimiento global", "Semáforo corporativo", "Recomendaciones", "Indicador regional"].map((item) => <span key={item}>{item}</span>)}
+      </section>
+      {showWelcome && (
+        <div className="welcome-modal-overlay">
+          <section className="welcome-modal" role="dialog" aria-modal="true" aria-labelledby="welcome-modal-title">
+            <button className="welcome-modal-close" type="button" aria-label="Cerrar bienvenida" onClick={dismissWelcome}>
+              <X size={20} />
+            </button>
+            <div className="welcome-modal-scroll">
+              <div className="welcome-modal-heading">
+                <span className="eyebrow">COPARMEX Nuevo Laredo</span>
+                <h2 id="welcome-modal-title">Bienvenido al Índice de Competitividad Empresarial</h2>
+                <p>{platformContentConfig.generalTexts.welcomeIntro}</p>
+              </div>
+              <div className="welcome-modal-grid">
+                <article>
+                  <strong>¿Qué es?</strong>
+                  <p>Es un autodiagnóstico estructurado que permite conocer la madurez, cumplimiento y organización documental de la empresa.</p>
+                </article>
+                <article>
+                  <strong>¿Por qué competitividad?</strong>
+                  <p>{platformContentConfig.generalTexts.competitiveness}</p>
+                </article>
+                <article>
+                  <strong>Antes de responder</strong>
+                  <p>{platformContentConfig.generalTexts.preparation}</p>
+                </article>
+                <article>
+                  <strong>Al finalizar</strong>
+                  <p>{platformContentConfig.generalTexts.outcome}</p>
+                </article>
+              </div>
+            </div>
+            <div className="welcome-modal-actions">
+              <button className="secondary" onClick={openPresidentLetter}><ExternalLink size={17} /> Carta de bienvenida COPARMEX</button>
+              <button className="primary" onClick={requestAccess}>Obtener acceso</button>
+            </div>
+          </section>
         </div>
-      </div>
-    </section>
+      )}
+    </>
   );
 }
 
-function AboutIndex() {
+function AboutIndex({ onPortal, onRequestAccess }: { onPortal: () => void; onRequestAccess: () => void }) {
   return (
-    <section className="page">
-      <SectionTitle title="Acerca del índice" subtitle="El Índice de Competitividad Empresarial permite evaluar madurez corporativa, brechas de cumplimiento y oportunidades de seguimiento institucional para empresas de Nuevo Laredo." />
-      <div className="kpi-grid">
-        <Kpi icon={<ShieldCheck />} label="Enfoque" value="Madurez corporativa" />
-        <Kpi icon={<ClipboardList />} label="Estructura" value="7 módulos" />
+    <section className="page about-index">
+      <div className="about-index-intro">
+        <SectionTitle title="Acerca del índice" subtitle={platformContentConfig.generalTexts.about} />
+      </div>
+      <div className="kpi-grid about-index-kpis">
+        <Kpi icon={<ShieldCheck />} label="Enfoque" value="Madurez empresarial" />
+        <Kpi icon={<ClipboardList />} label="Estructura" value="7 secciones" />
         <Kpi icon={<BarChart3 />} label="Salida" value="Indicador regional" />
       </div>
-      <TwoColumns
-        left={<InsightList title="Alcance empresarial" items={["Diagnóstico rápido de 7 a 10 minutos.", "Resultado por módulos con semáforo corporativo.", "Recomendaciones automáticas y acciones sugeridas."]} />}
-        right={<InsightList title="Alcance institucional" items={["Seguimiento administrativo por empresa.", "Estadística agregada por sector.", "Base preparada para reportes y expedientes documentales."]} />}
-      />
+      <div className="about-company-benefits">
+        <InsightList title="Para la empresa" items={["Autodiagnóstico de 7 a 10 minutos.", "Resultado por secciones con semáforo de cumplimiento.", "Recomendaciones puntuales y acciones sugeridas."]} />
+      </div>
+      <div className="actions-row about-index-actions">
+        <button className="primary" onClick={onRequestAccess}>Obtener acceso</button>
+        <button className="secondary" onClick={onPortal}>Iniciar sesión</button>
+      </div>
     </section>
   );
 }
@@ -885,12 +1021,12 @@ function AccessHub({ onCompany, onAdmin }: { onCompany: () => void; onAdmin: () 
         <button className="access-card" onClick={onCompany}>
           <Building2 size={34} />
           <strong>Acceso empresa</strong>
-          <span>Consulta dashboard, autodiagnóstico, resultado, recomendaciones y expediente documental.</span>
+          <span>Consulta inicio, autodiagnóstico, resultado, recomendaciones puntuales y perfil.</span>
         </button>
         <button className="access-card" onClick={onAdmin}>
           <LockKeyhole size={34} />
           <strong>Acceso administrador</strong>
-          <span>Gestiona empresas, diagnósticos, estadísticas, observaciones y reportes institucionales.</span>
+          <span>Gestiona empresas, autodiagnósticos, estadísticas, observaciones y reportes institucionales.</span>
         </button>
       </div>
     </section>
@@ -1335,7 +1471,7 @@ function Register({ profile, setProfile, onNext }: { profile: CompanyProfile; se
         <Field label="Representante o contacto principal" value={profile.representative} onChange={(value) => update("representative", value)} />
       </div>
       <div className="notice"><ShieldCheck size={18} /> La información se trata bajo confidencialidad, aviso de privacidad y uso agregado para indicadores regionales.</div>
-      <button className="primary" onClick={onNext} disabled={!profile.name || !profile.email || !profile.representative}>Continuar al diagnóstico</button>
+      <button className="primary" onClick={onNext} disabled={!profile.name || !profile.email || !profile.representative}>Continuar al autodiagnóstico</button>
     </section>
   );
 }
@@ -1350,27 +1486,40 @@ function Questionnaire(props: {
   onComplete: () => void;
   onCancel: () => void;
 }) {
+  const sectionTopRef = useRef<HTMLElement | null>(null);
   const module = diagnosticModules[props.currentModule];
   const canAdvance = props.currentQuestions.every((question) => props.answers[question.id] !== undefined);
   const moduleScore = props.currentQuestions.reduce((sum, question) => sum + (props.answers[question.id]?.points ?? 0), 0);
   const modulePercentage = Math.round((moduleScore / module.maxPoints) * 100);
+  const goToSection = (index: number) => {
+    props.setCurrentModule(index);
+    window.requestAnimationFrame(() => {
+      sectionTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  };
   return (
-    <section className="page">
-      <div className="split-title">
-        <SectionTitle title={module.title} subtitle={`${diagnosticICE.subtitle}. Módulo ${props.currentModule + 1} de ${diagnosticModules.length}. Puntaje del módulo: ${moduleScore}/${module.maxPoints} (${modulePercentage}%).`} />
-        <ProgressRing value={props.progress} label="Avance general" />
+    <section className="page questionnaire-page" ref={sectionTopRef}>
+      <div className="split-title questionnaire-heading">
+        <div>
+          <span className="section-progress-chip">Sección {props.currentModule + 1} de {diagnosticModules.length}</span>
+          <SectionTitle title={module.title} subtitle={`${diagnosticICE.subtitle}. Puntaje de esta sección: ${moduleScore}/${module.maxPoints} (${modulePercentage}%).`} />
+        </div>
+        <ProgressRing value={props.progress} label="Avance del cuestionario" />
       </div>
       <div className="progress"><span style={{ width: `${props.progress}%` }} /></div>
       <div className="question-list">
         {props.currentQuestions.map((question) => (
           <article className="question-card" key={question.id}>
-            <span className="question-id">{question.id}</span>
+            <div className="question-card-top">
+              <span className="question-id">{question.id}</span>
+              <QuestionHelp question={question} />
+            </div>
             <h3>{question.text}</h3>
             <div className="segmented">
-              {question.options.map((option) => (
+              {[...question.options].sort((left, right) => answerDisplayOrder(left.label) - answerDisplayOrder(right.label)).map((option) => (
                 <button
                   key={option.label}
-                  className={props.answers[question.id]?.label === option.label ? "active" : ""}
+                  className={`${answerVisualTone(option.label)} ${props.answers[question.id]?.label === option.label ? "active" : ""}`}
                   onClick={() => props.setAnswers({ ...props.answers, [question.id]: { label: option.label, points: option.points } })}
                 >
                   {option.label}
@@ -1381,10 +1530,10 @@ function Questionnaire(props: {
         ))}
       </div>
       <div className="actions-row">
-        <button className="secondary" onClick={props.onCancel}>Cancelar diagnóstico</button>
-        <button className="secondary" disabled={props.currentModule === 0} onClick={() => props.setCurrentModule(props.currentModule - 1)}>Anterior</button>
+        <button className="secondary" onClick={props.onCancel}>Cancelar autodiagnóstico</button>
+        <button className="secondary" disabled={props.currentModule === 0} onClick={() => goToSection(props.currentModule - 1)}>Anterior</button>
         {props.currentModule < diagnosticModules.length - 1 ? (
-          <button className="primary" disabled={!canAdvance} onClick={() => props.setCurrentModule(props.currentModule + 1)}>Siguiente sección</button>
+          <button className="primary" disabled={!canAdvance} onClick={() => goToSection(props.currentModule + 1)}>Siguiente sección</button>
         ) : (
           <button className="primary" disabled={!canAdvance} onClick={props.onComplete}>Generar resultado</button>
         )}
@@ -1393,21 +1542,23 @@ function Questionnaire(props: {
   );
 }
 
-function ResultScreen({ company, result, saveState, onPdf, onPortal }: { company: CompanyProfile; result: DiagnosticResult; saveState: { loading: boolean; error: string; success: string }; onPdf: () => void; onPortal: () => void }) {
+function ResultScreen({ company, result, saveState, onPdf, onPortal, onRecommendations }: { company: CompanyProfile; result: DiagnosticResult; saveState: { loading: boolean; error: string; success: string }; onPdf: () => void; onPortal: () => void; onRecommendations: () => void }) {
   return (
     <section className="page printable">
-      <ResultHeader company={company} result={result} />
+      <ResultOverview company={company} result={result} />
       {(saveState.loading || saveState.error || saveState.success) && (
         <div className={`save-status ${saveState.error ? "error" : saveState.success ? "success" : ""}`}>
-          {saveState.loading && "Guardando diagnóstico en el sistema..."}
+          {saveState.loading && "Guardando autodiagnóstico en el sistema..."}
           {saveState.error && saveState.error}
           {saveState.success && saveState.success}
         </div>
       )}
       <ModuleBars scores={result.moduleScores} />
       <ResponseBankInsights result={result} detail={false} />
+      <DashboardRecommendationSummary result={result} />
       <div className="actions-row">
-        <button className="primary" onClick={onPortal}>Volver al dashboard</button>
+        <button className="primary" onClick={onRecommendations}>Ver recomendaciones puntuales</button>
+        <button className="secondary" onClick={onPortal}>Volver al tablero</button>
       </div>
     </section>
   );
@@ -1420,9 +1571,9 @@ function CompanyPortal({ tab, setTab, company, result, loadingResult, resultErro
       <Sidebar title="Portal empresa" items={tabs} active={tab} onSelect={setTab} />
       <div className="portal-content">
         {tab === "dashboard" && <CompanyDashboard company={company} result={result} loadingResult={loadingResult} resultError={resultError} onStart={onStart} onResults={() => setTab("resultado")} />}
-        {tab === "autodiagnostico" && <PrepPanel onStart={onStart} />}
-        {tab === "resultado" && (result ? <ResultScreen company={company} result={result} saveState={{ loading: false, error: "", success: "" }} onPdf={onPdf} onPortal={() => setTab("dashboard")} /> : <EmptyDiagnosticState company={company} onStart={onStart} loading={loadingResult} error={resultError} />)}
-        {tab === "recomendaciones" && (result ? <ResponseBankInsights result={result} title="Recomendaciones ICE" description="Detalle de hallazgos, riesgos, recomendaciones y posibles líneas de apoyo según el resultado del diagnóstico." /> : <EmptyDiagnosticState company={company} onStart={onStart} loading={loadingResult} error={resultError} />)}
+        {tab === "autodiagnostico" && <PrepPanel onStart={onStart} hasResult={Boolean(result)} />}
+        {tab === "resultado" && (result ? <ResultScreen company={company} result={result} saveState={{ loading: false, error: "", success: "" }} onPdf={onPdf} onPortal={() => setTab("dashboard")} onRecommendations={() => setTab("recomendaciones")} /> : <EmptyDiagnosticState company={company} onStart={onStart} loading={loadingResult} error={resultError} />)}
+        {tab === "recomendaciones" && (result ? <ResponseBankInsights result={result} title="Recomendaciones puntuales ICE" description="Detalle de hallazgos, riesgos, recomendaciones puntuales y posibles líneas de apoyo según el resultado del autodiagnóstico." showInstitutionalNote /> : <EmptyDiagnosticState company={company} onStart={onStart} loading={loadingResult} error={resultError} />)}
         {tab === "observaciones" && <ObservationList companyId={company.id} companyName={company.name} authorRole="company" authorName={company.name} />}
         {tab === "perfil" && <ProfileCard company={company} result={result} />}
         {tab === "documentacion" && <DocumentsPanel companyId={company.id} />}
@@ -1437,12 +1588,12 @@ function AdminPortal(props: { tab: AdminTab; setTab: (tab: AdminTab) => void; st
     <section className="portal">
       <Sidebar title="Panel administrativo" items={tabs} active={props.tab} onSelect={props.setTab} />
       <div className="portal-content">
-        {props.tab === "panel" && <AdminDashboard stats={props.stats} />}
+        {props.tab === "panel" && <AdminDashboard stats={props.stats} diagnostics={props.diagnostics} onNavigate={props.setTab} />}
         {props.tab === "empresas" && <CompaniesTable diagnostics={props.diagnostics} setSelectedCompanyId={props.setSelectedCompanyId} setSelectedAdminCompany={props.setSelectedAdminCompany} setView={props.setView} onPdf={props.onPdf} />}
         {props.tab === "solicitudes" && <AccessRequestsPanel />}
         {props.tab === "estadisticas" && <RegionalStats stats={props.stats} compact />}
         {props.tab === "observaciones" && <AllObservations />}
-        {props.tab === "reportes" && <ReportsPanel onPdf={props.onPdf} />}
+        {props.tab === "reportes" && <ReportsPanelV3 diagnostics={props.diagnostics} />}
         {props.tab === "configuracion" && <ConfigPanel />}
       </div>
     </section>
@@ -1669,20 +1820,29 @@ function AccessMessageBlock({ request }: { request: AccessRequestRecord }) {
   );
 }
 
-function AdminDashboard({ stats }: { stats: any }) {
+function AdminDashboard({ stats, diagnostics: adminDiagnostics, onNavigate }: { stats: any; diagnostics: AdminDiagnosticRecord[]; onNavigate: (tab: AdminTab) => void }) {
+  const immediate = adminDiagnostics.filter((diagnostic) => getComplianceLevel(diagnostic.result.percentage).key === "immediate").length;
+  const incomplete = companies.filter((company) => !company.email).length;
   return (
     <>
-      <SectionTitle title="Panel general COPARMEX" subtitle="Seguimiento ejecutivo de empresas participantes, madurez corporativa y brechas regionales." />
+      <SectionTitle title="Panel general COPARMEX" subtitle="Visión ejecutiva de empresas participantes, madurez empresarial y brechas regionales." />
       <div className="kpi-grid">
-        <Kpi icon={<Building2 />} label="Empresas participantes" value={companies.length} />
-        <Kpi icon={<BarChart3 />} label="Promedio general" value={`${stats.average}%`} />
-        <Kpi icon={<ShieldCheck />} label="Empresas en alto riesgo" value={stats.highRisk} />
-        <Kpi icon={<CheckCircle2 />} label="Madurez sólida" value={stats.solid} />
-        <Kpi icon={<UserRoundCheck />} label="Interesadas en asesoría" value={stats.advisory} />
-        <Kpi icon={<ClipboardList />} label="Diagnósticos pendientes" value={stats.pending} />
+        <Kpi icon={<Building2 />} label="Total de empresas registradas" value={companies.length} />
+        <Kpi icon={<CheckCircle2 />} label="Con autodiagnóstico" value={adminDiagnostics.length} />
+        <Kpi icon={<ClipboardList />} label="Empresas pendientes" value={Math.max(companies.length - adminDiagnostics.length, 0)} />
+        <Kpi icon={<BarChart3 />} label="Promedio general ICE" value={`${stats.average}%`} />
+        <Kpi icon={<ShieldCheck />} label="Empresas en riesgo crítico" value={stats.highRisk} />
+        <Kpi icon={<UserRoundCheck />} label="Atención inmediata" value={immediate} />
+        <Kpi icon={<FileText />} label="Datos incompletos" value={incomplete} />
+      </div>
+      <div className="admin-quick-actions">
+        <button className="secondary" onClick={() => onNavigate("empresas")}><Upload size={17} /> Importar empresas</button>
+        <button className="secondary" onClick={() => onNavigate("empresas")}><ClipboardList size={17} /> Ver empresas pendientes</button>
+        <button className="secondary" onClick={() => onNavigate("reportes")}><ShieldCheck size={17} /> Ver atención prioritaria</button>
+        <button className="secondary" onClick={() => onNavigate("reportes")}><FileSpreadsheet size={17} /> Reporte de empresas</button>
       </div>
       <div className="dashboard-grid">
-        <ChartBlock title="Promedio por módulo" data={stats.moduleAverages} />
+        <ChartBlock title="Promedio por sección" data={stats.moduleAverages} />
         <LevelDistribution diagnostics={stats.diagnostics} />
         <ChartBlock title="Distribución por sector" data={stats.sectors.map((sector: any) => ({ title: sector.sector, value: sector.count * 10 }))} />
       </div>
@@ -1697,17 +1857,20 @@ function CompanyDashboard({ company, result, loadingResult, resultError, onStart
 
   return (
     <>
-      <ResultHeader company={company} result={result} compact />
-      <div className="kpi-grid">
+      <ResultOverview company={company} result={result} compact />
+      <div className="kpi-grid company-kpi-grid">
         <Kpi icon={<LayoutDashboard />} label="Folio institucional" value={getCompanyFolio(company)} />
         <Kpi icon={<BarChart3 />} label="Cumplimiento global" value={`${result.percentage}%`} />
-        <Kpi icon={<ShieldCheck />} label="Semáforo" value={trafficLabel(result.maturity.trafficLight)} />
+        <Kpi icon={<ShieldCheck />} label="Semáforo de cumplimiento" value={getComplianceLevel(result.percentage).label} />
         <Kpi icon={<FileText />} label="Observaciones nuevas" value={observations.filter((obs) => obs.companyId === company.id).length} />
       </div>
-      <TwoColumns left={<ModuleBars scores={result.moduleScores} />} right={<DashboardRecommendationSummary result={result} />} />
+      <div className="company-dashboard-grid">
+        <ModuleBars scores={result.moduleScores} compact />
+        <DashboardRecommendationSummary result={result} />
+      </div>
       <div className="actions-row">
         <button className="primary" onClick={onResults}>Ver resultados</button>
-        <button className="secondary" onClick={onStart}>Realizar nuevo diagnóstico</button>
+        <button className="secondary" onClick={onStart}>Realizar nuevo autodiagnóstico</button>
       </div>
     </>
   );
@@ -1724,11 +1887,11 @@ function DashboardRecommendationSummary({ result }: { result: DiagnosticResult }
   });
 
   if (priorityScores.length > 2) {
-    items.push(`Dar seguimiento a ${priorityScores.length} áreas prioritarias en la sección Recomendaciones.`);
+    items.push(`Dar seguimiento a ${priorityScores.length} secciones prioritarias en Recomendaciones puntuales.`);
   } else if (!items.length) {
     items.push("Mantener evidencia corporativa actualizada y revisar periódicamente el índice.");
   } else {
-    items.push("Consulta Recomendaciones para ver el detalle ejecutivo por módulo.");
+    items.push("Consulta Recomendaciones puntuales para ver el detalle ejecutivo por sección.");
   }
 
   return <InsightList title="Acciones recomendadas" items={items.slice(0, 3)} />;
@@ -1738,9 +1901,9 @@ function EmptyDiagnosticState({ company, onStart, loading, error }: { company: C
   return (
     <div className="card prepared empty-diagnostic">
       <ClipboardList size={34} />
-      <h2>Aún no has realizado tu autodiagnóstico ICE.</h2>
-      <p>Cuando completes el diagnóstico, aquí se mostrará el porcentaje de cumplimiento, nivel de madurez, semáforo corporativo y recomendaciones de {company.name}.</p>
-      {loading && <div className="save-status">Consultando diagnósticos guardados...</div>}
+      <h2>La empresa aún no ha respondido el autodiagnóstico.</h2>
+      <p>Cuando completes el autodiagnóstico, aquí se mostrará el porcentaje de cumplimiento, nivel de madurez, semáforo de cumplimiento y recomendaciones puntuales de {company.name}.</p>
+      {loading && <div className="save-status">Consultando autodiagnósticos guardados...</div>}
       {error && <div className="save-status error">{error}</div>}
       <div className="kpi-grid">
         <Kpi icon={<LayoutDashboard />} label="Folio institucional" value={getCompanyFolio(company)} />
@@ -1748,7 +1911,7 @@ function EmptyDiagnosticState({ company, onStart, loading, error }: { company: C
         <Kpi icon={<FileText />} label="Sector" value={company.sector} />
         <Kpi icon={<ShieldCheck />} label="Estado" value={company.state} />
       </div>
-      <button className="primary" onClick={onStart}>Iniciar diagnóstico</button>
+      <button className="primary" onClick={onStart}>Iniciar autodiagnóstico</button>
     </div>
   );
 }
@@ -1762,6 +1925,13 @@ function CompaniesTable({ diagnostics: adminDiagnostics, setSelectedCompanyId, s
   const [savingCompany, setSavingCompany] = useState(false);
   const [companySaveMessage, setCompanySaveMessage] = useState("");
   const [companySaveError, setCompanySaveError] = useState("");
+  const [companiesRefreshKey, setCompaniesRefreshKey] = useState(0);
+  const [companySearch, setCompanySearch] = useState("");
+  const [levelFilter, setLevelFilter] = useState("");
+  const [diagnosticFilter, setDiagnosticFilter] = useState("");
+  const [sizeFilter, setSizeFilter] = useState("");
+  const [sectorFilter, setSectorFilter] = useState("");
+  const [companySort, setCompanySort] = useState("empresa");
   const [newCompany, setNewCompany] = useState({
     folio: "",
     name: "",
@@ -1794,7 +1964,7 @@ function CompaniesTable({ diagnostics: adminDiagnostics, setSelectedCompanyId, s
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [companiesRefreshKey]);
 
 
   const displayCompanies: AdminCompany[] = [
@@ -1809,6 +1979,34 @@ function CompaniesTable({ diagnostics: adminDiagnostics, setSelectedCompanyId, s
     diagnostic: adminDiagnostics.find((item) => item.companyId === company.id),
     observations: observations.filter((observation) => observation.companyId === company.id).length,
   }));
+  const visibleCompanyRows = companyRows
+    .filter(({ company, diagnostic }) => {
+      const query = companySearch.trim().toLocaleLowerCase("es-MX");
+      const level = diagnostic ? getComplianceLevel(diagnostic.result.percentage).label : "Pendiente";
+      const searchable = [company.name, getCompanyFolio(company), company.email, company.representative].join(" ").toLocaleLowerCase("es-MX");
+      return (!query || searchable.includes(query)) &&
+        (!levelFilter || level === levelFilter) &&
+        (!diagnosticFilter || (diagnostic ? "Sí" : "No") === diagnosticFilter) &&
+        (!sizeFilter || getCompanySize(company) === sizeFilter) &&
+        (!sectorFilter || company.sector === sectorFilter);
+    })
+    .sort((left, right) => {
+      const leftLevel = left.diagnostic ? getComplianceLevel(left.diagnostic.result.percentage).label : "Pendiente";
+      const rightLevel = right.diagnostic ? getComplianceLevel(right.diagnostic.result.percentage).label : "Pendiente";
+      const values: Record<string, [string | number, string | number]> = {
+        folio: [getCompanyFolio(left.company), getCompanyFolio(right.company)],
+        empresa: [left.company.name, right.company.name],
+        porcentaje: [left.diagnostic?.result.percentage ?? -1, right.diagnostic?.result.percentage ?? -1],
+        nivel: [leftLevel, rightLevel],
+        empleados: [getCompanyEmployeeCount(left.company) ?? -1, getCompanyEmployeeCount(right.company) ?? -1],
+        tamano: [getCompanySize(left.company), getCompanySize(right.company)],
+        observaciones: [left.observations, right.observations],
+        autodiagnostico: [left.diagnostic ? 1 : 0, right.diagnostic ? 1 : 0],
+      };
+      const [a, b] = values[companySort] ?? values.empresa;
+      return typeof a === "number" && typeof b === "number" ? b - a : String(a).localeCompare(String(b), "es-MX");
+    });
+  const sectors = [...new Set(displayCompanies.map((company) => company.sector))].sort((a, b) => a.localeCompare(b, "es-MX"));
   const openDetail = (company: AdminCompany) => {
     setSelectedCompanyId(company.id);
     setSelectedAdminCompany(company);
@@ -1953,7 +2151,7 @@ function CompaniesTable({ diagnostics: adminDiagnostics, setSelectedCompanyId, s
   return (
     <>
       <div className="section-title-row">
-        <SectionTitle title="Empresas" subtitle="Listado operativo para seguimiento institucional, observaciones y reportes." />
+        <SectionTitle title="Empresas" subtitle="Padrón operativo para consulta, observaciones y reportes institucionales." />
         <button className="primary" onClick={() => setShowNewCompany((value) => !value)}>{showNewCompany ? "Cerrar formulario" : "Nueva empresa"}</button>
       </div>
       {loadingCompanies && <div className="save-status">Cargando empresas registradas...</div>}
@@ -1987,12 +2185,6 @@ function CompaniesTable({ diagnostics: adminDiagnostics, setSelectedCompanyId, s
             <Field label="Teléfono" value={newCompany.phone} onChange={(value) => updateNewCompany("phone", value)} format="phone" maxLength={10} />
             <Field label="Ciudad" value={newCompany.city} onChange={(value) => updateNewCompany("city", value)} />
             <Field label="Estado" value={newCompany.state} onChange={(value) => updateNewCompany("state", value)} />
-            <Select
-              label="Seguimiento"
-              value={newCompany.followUpStatus}
-              onChange={(value) => updateNewCompany("followUpStatus", value)}
-              options={["Sin iniciar", "En seguimiento", "Asesoría solicitada", "Cerrado"]}
-            />
           </div>
           <div className="actions-row">
             <button className="primary" onClick={saveNewCompany} disabled={savingCompany}>{savingCompany ? "Guardando..." : "Guardar empresa"}</button>
@@ -2000,30 +2192,46 @@ function CompaniesTable({ diagnostics: adminDiagnostics, setSelectedCompanyId, s
           </div>
         </div>
       )}
+      <CompanyImportPanel existingCompanies={displayCompanies} onImported={() => setCompaniesRefreshKey((current) => current + 1)} />
+      <div className="card admin-filter-bar">
+        <label className="field"><span>Buscar empresa</span><input value={companySearch} onChange={(event) => setCompanySearch(event.target.value)} placeholder="Empresa, folio, correo o representante" /></label>
+        <Select label="Nivel" value={levelFilter} onChange={setLevelFilter} options={["", "Madura", "Área de oportunidad", "Atención inmediata", "Riesgo crítico", "Pendiente"]} />
+        <Select label="Autodiagnóstico" value={diagnosticFilter} onChange={setDiagnosticFilter} options={["", "Sí", "No"]} />
+        <Select label="Tamaño" value={sizeFilter} onChange={setSizeFilter} options={["", "Micro", "Pequeña", "Mediana", "Grande", "No calculado"]} />
+        <Select label="Sector" value={sectorFilter} onChange={setSectorFilter} options={["", ...sectors]} />
+        <Select label="Ordenar por" value={companySort} onChange={setCompanySort} options={["empresa", "folio", "porcentaje", "nivel", "empleados", "tamano", "autodiagnostico", "observaciones"]} />
+      </div>
+      <p className="admin-list-count">{visibleCompanyRows.length} empresas visibles de {companyRows.length}</p>
       <div className="admin-company-table">
         <div className="admin-company-row admin-company-head">
           <span>Folio</span>
           <span>Empresa</span>
           <span>Sector</span>
           <span>Representante</span>
+          <span>Correo</span>
+          <span>Empleados</span>
+          <span>Tamaño</span>
+          <span>Autodiagnóstico</span>
           <span>Nivel</span>
           <span>%</span>
-          <span>Semáforo</span>
+          <span>Semáforo de cumplimiento</span>
           <span>Observaciones</span>
-          <span>Seguimiento</span>
           <span>Acciones</span>
         </div>
-        {companyRows.map(({ company, diagnostic, observations: companyObservations }) => (
+        {visibleCompanyRows.map(({ company, diagnostic, observations: companyObservations }) => (
           <div className="admin-company-row" key={company.id}>
             <span>{getCompanyFolio(company)}</span>
             <span className="company-cell">{company.name}</span>
             <span>{company.sector}</span>
             <span>{company.representative}</span>
+            <span>{company.email || "Sin correo"}</span>
+            <span>{getCompanyEmployeeCount(company) ?? "-"}</span>
+            <span>{getCompanySize(company)}</span>
+            <span><span className={`report-status ${diagnostic ? "yes" : "no"}`}>{diagnostic ? "Sí" : "No"}</span></span>
             <span>{diagnostic?.result?.maturity.title ?? "Pendiente"}</span>
             <span>{diagnostic?.result?.percentage ?? "-"}%</span>
-            <span><Badge tone={diagnostic?.result?.maturity.trafficLight ?? "amarillo"}>{diagnostic?.result ? trafficLabel(diagnostic.result.maturity.trafficLight) : "Pendiente"}</Badge></span>
+            <span><Badge tone={diagnostic?.result ? getComplianceLevel(diagnostic.result.percentage).color : "amarillo"}>{diagnostic?.result ? getComplianceLevel(diagnostic.result.percentage).label : "Pendiente"}</Badge></span>
             <span>{companyObservations}</span>
-            <span>{company.followUpStatus}</span>
             <span className="table-actions">
               <ActionMenu
                 companyId={company.id}
@@ -2038,7 +2246,7 @@ function CompaniesTable({ diagnostics: adminDiagnostics, setSelectedCompanyId, s
         ))}
       </div>
       <div className="company-card-list">
-        {companyRows.map(({ company, diagnostic, observations: companyObservations }) => (
+        {visibleCompanyRows.map(({ company, diagnostic, observations: companyObservations }) => (
           <article className="company-admin-card" key={company.id}>
             <div className="company-card-head">
               <span>{getCompanyFolio(company)}</span>
@@ -2055,17 +2263,234 @@ function CompaniesTable({ diagnostics: adminDiagnostics, setSelectedCompanyId, s
             <div className="mobile-detail-grid">
               <p><span>Sector</span><strong>{company.sector}</strong></p>
               <p><span>Representante</span><strong>{company.representative}</strong></p>
+              <p><span>Correo</span><strong>{company.email || "Sin correo"}</strong></p>
+              <p><span>Empleados</span><strong>{getCompanyEmployeeCount(company) ?? "No disponible"}</strong></p>
+              <p><span>Tamaño</span><strong>{getCompanySize(company)}</strong></p>
+              <p><span>Autodiagnóstico</span><span className={`report-status ${diagnostic ? "yes" : "no"}`}>{diagnostic ? "Sí" : "No"}</span></p>
               <p><span>Nivel</span><strong>{diagnostic?.result?.maturity.title ?? "Pendiente"}</strong></p>
               <p><span>Porcentaje</span><strong>{diagnostic?.result?.percentage ?? "-"}%</strong></p>
-              <p><span>Semáforo</span><Badge tone={diagnostic?.result?.maturity.trafficLight ?? "amarillo"}>{diagnostic?.result ? trafficLabel(diagnostic.result.maturity.trafficLight) : "Pendiente"}</Badge></p>
+              <p><span>Semáforo de cumplimiento</span><Badge tone={diagnostic?.result ? getComplianceLevel(diagnostic.result.percentage).color : "amarillo"}>{diagnostic?.result ? getComplianceLevel(diagnostic.result.percentage).label : "Pendiente"}</Badge></p>
               <p><span>Observaciones</span><strong>{companyObservations}</strong></p>
-              <p><span>Seguimiento</span><strong>{company.followUpStatus}</strong></p>
             </div>
           </article>
         ))}
       </div>
     </>
   );
+}
+
+function CompanyImportPanel({ existingCompanies, onImported }: { existingCompanies: AdminCompany[]; onImported: () => void }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [rows, setRows] = useState<CompanyImportRow[]>([]);
+  const [removedRows, setRemovedRows] = useState<CompanyImportRow[]>([]);
+  const [duplicateMode, setDuplicateMode] = useState<DuplicateMode>("omit");
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [error, setError] = useState("");
+  const [resultMessage, setResultMessage] = useState("");
+
+  const previewSummary = {
+    total: rows.length,
+    valid: rows.filter((row) => row.status === "Válida").length,
+    warnings: rows.filter((row) => row.status === "Advertencia").length,
+    errors: rows.filter((row) => row.status === "Error").length,
+    duplicates: rows.filter((row) => row.status === "Posible duplicada").length,
+    estimatedSizes: rows.filter((row) => row.tamanoEmpresa).length,
+    ready: rows.filter((row) => row.status === "Válida" || row.status === "Advertencia").length,
+  };
+
+  const previewFile = async () => {
+    if (!file) {
+      setError("Selecciona un archivo Excel o CSV para generar la vista previa.");
+      return;
+    }
+    setLoadingPreview(true);
+    setError("");
+    setResultMessage("");
+    try {
+      const parsedRows = await parseCompanyImportFile(await file.arrayBuffer(), existingCompanies as unknown as Record<string, unknown>[]);
+      setRows(parsedRows);
+      setRemovedRows([]);
+      if (!parsedRows.length) setError("No se encontraron filas con información real en el archivo.");
+    } catch (previewError) {
+      console.error("Company import preview failed", previewError);
+      setRows([]);
+      setError("No fue posible leer el archivo. Verifica que sea un Excel o CSV válido.");
+    } finally {
+      setLoadingPreview(false);
+    }
+  };
+
+  const removePreviewRow = (rowToRemove: CompanyImportRow) => {
+    setRows((current) => current.filter((row) => row !== rowToRemove));
+    setRemovedRows((current) => [...current, rowToRemove]);
+  };
+
+  const importCompanies = async () => {
+    const importableRows = rows.filter((row) =>
+      row.status !== "Error" && (
+        row.status !== "Posible duplicada" ||
+        duplicateMode === "import" ||
+        (duplicateMode === "update" && Boolean(row.duplicateCompanyId))
+      ),
+    );
+    if (!importableRows.length) {
+      setError("No hay empresas nuevas disponibles para importar con la selección actual.");
+      return;
+    }
+    if (!window.confirm(`Se importarán ${importableRows.length} empresas. ¿Deseas continuar?`)) return;
+
+    setImporting(true);
+    setError("");
+    setResultMessage("");
+    let imported = 0;
+    let updated = 0;
+    let errors = 0;
+
+    for (const row of importableRows) {
+      const payload = {
+        folio: row.numeroSocio,
+        numeroSocio: row.numeroSocio,
+        name: row.nombreEmpresa,
+        nombreEmpresa: row.nombreEmpresa,
+        representative: row.representante,
+        primaryContactName: row.representante,
+        email: row.correo,
+        correo: row.correo,
+        primaryContactEmail: row.correo,
+        allowedAccessEmails: row.correo ? [row.correo] : [],
+        rfc: row.rfc,
+        numeroEmpleados: row.numeroEmpleados,
+        tamanoEmpresa: row.tamanoEmpresa,
+        tamanoEmpresaFuente: row.tamanoEmpresaFuente,
+        consecutivoImportacion: row.consecutivoImportacion,
+        sector: "No especificado",
+        city: "Nuevo Laredo",
+        state: "Tamaulipas",
+        status: "Activa",
+        accessStatus: "available",
+        accountCreated: false,
+        followUpStatus: "Sin iniciar",
+        source: "importacion_excel",
+      };
+
+      try {
+        if (row.status === "Posible duplicada" && duplicateMode === "update" && row.duplicateCompanyId) {
+          await updateCompany(row.duplicateCompanyId, payload);
+          updated += 1;
+        } else {
+          await createCompany(payload);
+          imported += 1;
+        }
+      } catch (importError) {
+        console.error("Company import row failed", importError);
+        errors += 1;
+      }
+    }
+
+    setImporting(false);
+    const omitted = rows.length - importableRows.length;
+    setResultMessage(`Importación finalizada. ${imported} empresas importadas, ${updated} actualizadas, ${omitted} omitidas, ${previewSummary.warnings} con advertencia, ${previewSummary.duplicates} duplicados detectados y ${errors} errores.`);
+    onImported();
+  };
+
+  return (
+    <section className="card company-import-card">
+      <div className="section-title-row company-import-heading">
+        <div>
+          <span className="eyebrow">Carga masiva</span>
+          <h3>Importar empresas</h3>
+          <p>Selecciona la base de socios COPARMEX, revisa la vista previa y confirma antes de guardar.</p>
+        </div>
+        <FileSpreadsheet size={32} />
+      </div>
+      <div className="company-import-controls">
+        <label className="file-picker">
+          <Upload size={18} />
+          <span>{file?.name || "Seleccionar archivo"}</span>
+          <input
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            onChange={(event) => {
+              setFile(event.target.files?.[0] ?? null);
+              setRows([]);
+              setRemovedRows([]);
+              setError("");
+              setResultMessage("");
+            }}
+          />
+        </label>
+        <small>Acepta archivos .xlsx, .xls o .csv. Solo se procesan filas con valores reales.</small>
+        <button className="secondary" type="button" onClick={previewFile} disabled={loadingPreview || !file}>
+          {loadingPreview ? "Leyendo archivo..." : "Previsualizar"}
+        </button>
+      </div>
+      {error && <div className="save-status error">{error}</div>}
+      {resultMessage && <div className="save-status success">{resultMessage}</div>}
+      {rows.length > 0 && (
+        <>
+          <div className="import-summary-grid">
+            <ImportSummary label="Filas detectadas" value={previewSummary.total} />
+            <ImportSummary label="Empresas válidas" value={previewSummary.valid} tone="green" />
+            <ImportSummary label="Advertencias" value={previewSummary.warnings} tone="yellow" />
+            <ImportSummary label="Errores" value={previewSummary.errors} tone="red" />
+            <ImportSummary label="Posibles duplicados" value={previewSummary.duplicates} tone="orange" />
+            <ImportSummary label="Listas para importar" value={previewSummary.ready} />
+          </div>
+          {removedRows.length > 0 && (
+            <details className="removed-import-rows">
+              <summary>Filas quitadas <span>{removedRows.length}</span></summary>
+              <div>
+                {removedRows.map((row) => (
+                  <p key={`removed-${row.rowNumber}-${row.numeroSocio}`}>
+                    <strong>{row.numeroSocio || "Sin número"} · {row.nombreEmpresa || "Sin nombre"}</strong>
+                    <span>{row.correo || "Sin correo"} · Estado original: {row.status}</span>
+                  </p>
+                ))}
+              </div>
+            </details>
+          )}
+          <div className="import-options">
+            <label className="field">
+              <span>Tratamiento de posibles duplicados</span>
+              <select value={duplicateMode} onChange={(event) => setDuplicateMode(event.target.value as DuplicateMode)}>
+                <option value="omit">Omitir duplicados</option>
+                <option value="update">Actualizar empresa existente</option>
+                <option value="import">Importar de todos modos</option>
+              </select>
+            </label>
+          </div>
+          <div className="import-preview-wrap">
+            <table className="import-preview-table">
+              <thead><tr><th>No. socio</th><th>Empresa</th><th>Representante</th><th>Correo</th><th>Empleados</th><th>Tamaño estimado</th><th>Estado</th><th>Quitar</th></tr></thead>
+              <tbody>
+                {rows.slice(0, 100).map((row) => (
+                  <tr key={`${row.rowNumber}-${row.numeroSocio}-${row.nombreEmpresa}`}>
+                    <td>{row.numeroSocio || "Sin número"}</td>
+                    <td>{row.nombreEmpresa || "Sin nombre"}</td>
+                    <td>{row.representante || "No capturado"}</td>
+                    <td>{row.correo || "Sin correo"}</td>
+                    <td>{row.numeroEmpleados ?? "No disponible"}</td>
+                    <td>{row.tamanoEmpresa || "No calculado"}</td>
+                    <td><span className={`import-status ${row.status.toLocaleLowerCase("es-MX").replace(/\s/g, "-")}`}>{row.status}</span><small>{row.messages.join(". ")}</small></td>
+                    <td><button className="remove-import-row" type="button" onClick={() => removePreviewRow(row)} aria-label={`Quitar ${row.nombreEmpresa || "fila"}`} title="Quitar fila"><X size={15} /></button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {rows.length > 100 && <p className="muted">La vista previa muestra las primeras 100 filas. Se procesarán todas las filas válidas.</p>}
+          <button className="primary" type="button" onClick={importCompanies} disabled={importing}>
+            {importing ? "Importando empresas..." : "Importar empresas"}
+          </button>
+        </>
+      )}
+    </section>
+  );
+}
+
+function ImportSummary({ label, value, tone = "" }: { label: string; value: number; tone?: string }) {
+  return <div className={`import-summary ${tone}`}><span>{label}</span><strong>{value}</strong></div>;
 }
 
 function ActionMenu({ companyId, openMenu, setOpenMenu, onDetail, onReport, onObservation }: { companyId: string; openMenu: string | null; setOpenMenu: (id: string | null) => void; onDetail: () => void; onReport: () => void; onObservation: () => void }) {
@@ -2087,10 +2512,10 @@ function CompanyDetail({ company, result, onBack, onPdf }: { company: CompanyPro
   return (
     <section className="page">
       <button className="back-link" onClick={onBack}>← Volver a empresas</button>
-      {result ? <ResultHeader company={company} result={result} /> : <SectionTitle title={company.name} subtitle="Esta empresa aún no tiene un diagnóstico guardado." />}
-      {result ? <ProfileCard company={company} result={result} /> : <div className="card prepared"><ClipboardList size={30} /><h2>Diagnóstico pendiente</h2><p>Los resultados y recomendaciones aparecerán cuando la empresa complete su autodiagnóstico.</p></div>}
+      {result ? <ResultOverview company={company} result={result} /> : <SectionTitle title={company.name} subtitle="Esta empresa aún no tiene un autodiagnóstico guardado." />}
+      {result ? <ProfileCard company={company} result={result} hideFollowUp /> : <div className="card prepared"><ClipboardList size={30} /><h2>Autodiagnóstico pendiente</h2><p>Los resultados y recomendaciones puntuales aparecerán cuando la empresa complete su autodiagnóstico.</p></div>}
       {result && <ModuleBars scores={result.moduleScores} />}
-      {result && <ResponseBankInsights result={result} title="Lectura institucional ICE" description="Esta lectura permite identificar áreas críticas, riesgos y posibles líneas de seguimiento para la empresa." />}
+      {result && <ResponseBankInsights result={result} title="Lectura institucional ICE" description="Esta lectura permite identificar secciones críticas, riesgos y posibles líneas de atención para la empresa." />}
       <TwoColumns left={<ObservationList companyId={company.id} companyName={company.name} authorRole="admin" authorName="Administrador COPARMEX" />} right={<ActivityPanel companyId={company.id} />} />
       <DocumentsPanel companyId={company.id} />
     </section>
@@ -2100,7 +2525,7 @@ function CompanyDetail({ company, result, onBack, onPdf }: { company: CompanyPro
 function RegionalStats({ stats, compact = false }: { stats: any; compact?: boolean }) {
   return (
     <section className={compact ? "" : "page"}>
-      <SectionTitle title="Índice de Competitividad Empresarial de Nuevo Laredo" subtitle="Estadística agregada para construir indicadores regionales sin exponer información confidencial de empresas." />
+      <SectionTitle title="Índice de Competitividad Empresarial de Nuevo Laredo" subtitle={platformContentConfig.regionalIndicator.description} />
       <div className="kpi-grid">
         <Kpi icon={<FileText />} label="Libros corporativos actualizados" value="46%" />
         <Kpi icon={<ShieldCheck />} label="Poderes notariales vigentes" value="63%" />
@@ -2109,44 +2534,113 @@ function RegionalStats({ stats, compact = false }: { stats: any; compact?: boole
       </div>
       <div className="dashboard-grid">
         <ChartBlock title="Promedio de cumplimiento por sector" data={stats.sectors.map((sector: any) => ({ title: sector.sector, value: sector.average || 18 }))} />
-        <ChartBlock title="Módulos con menor calificación" data={[...stats.moduleAverages].sort((a, b) => a.value - b.value).slice(0, 5)} />
+        <ChartBlock title="Secciones con menor calificación" data={[...stats.moduleAverages].sort((a, b) => a.value - b.value).slice(0, 5)} />
+        <LevelDistribution diagnostics={stats.diagnostics} />
       </div>
     </section>
   );
 }
 
+function ResultOverview({ company, result, compact = false }: { company: CompanyProfile; result: DiagnosticResult; compact?: boolean }) {
+  return (
+    <div className="result-overview">
+      <ResultHeader company={company} result={result} compact={compact} />
+      <div className="standalone-traffic-light">
+        <ComplianceTrafficLight result={result} compact={compact} />
+      </div>
+    </div>
+  );
+}
+
 function ResultHeader({ company, result, compact = false }: { company: CompanyProfile; result: DiagnosticResult; compact?: boolean }) {
+  const currentLevel = getComplianceLevel(result.percentage);
   return (
     <div className="result-header">
       <div>
         <span className="eyebrow">{company.name || "Empresa participante"}</span>
-        <h2>{compact ? "Dashboard empresa" : "Resultado del diagnóstico"}</h2>
-        <p>{result.maturity.message}</p>
-      </div>
-      <div className={`score-card ${result.maturity.trafficLight}`}>
-        <strong>{result.percentage}%</strong>
-        <span>Nivel {result.maturity.level} - {result.maturity.title}</span>
-        <small>Semáforo {trafficLabel(result.maturity.trafficLight)}</small>
+        <h2>{compact ? "Tablero de cumplimiento" : "Resultado del autodiagnóstico"}</h2>
+        <p>{currentLevel.longText}</p>
       </div>
     </div>
   );
 }
 
-function ModuleBars({ scores }: { scores: DiagnosticResult["moduleScores"] }) {
+function ComplianceTrafficLight({ result, compact = false }: { result: DiagnosticResult; compact?: boolean }) {
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const isCurrentModel = result.scoringVersion === "4-level-2026";
+  const activeLevel = getComplianceLevel(result.percentage);
+  const selectedLevel = platformContentConfig.trafficLight.find((level) => level.key === selectedKey);
+
   return (
-    <div className="card">
-      <h3>Resultados por módulo</h3>
-      {scores.map((score) => (
-        <div className="bar-row" key={score.moduleId}>
-          <span>{score.title}</span><strong>{score.percentage}%</strong>
-          <div className="bar"><i style={{ width: `${score.percentage}%` }} /></div>
-        </div>
-      ))}
+    <div className={`compliance-traffic-light ${compact ? "compact" : ""}`}>
+      <div className="traffic-light-copy">
+        <span>Semáforo de cumplimiento</span>
+        <strong>{result.percentage}%</strong>
+        <small>Nivel actual: {activeLevel.label}</small>
+      </div>
+      <div className="traffic-light-vertical" aria-label={`Semáforo de cumplimiento: ${activeLevel.label}`}>
+        {platformContentConfig.trafficLight.map((level) => {
+          const active = level.key === activeLevel.key;
+          return (
+            <button
+              type="button"
+              key={level.key}
+              className={`traffic-light-lamp ${level.color} ${active ? "is-active" : "is-off"}`}
+              aria-label={level.shortText}
+              aria-pressed={selectedKey === level.key}
+              title={level.shortText}
+              onClick={() => setSelectedKey((current) => current === level.key ? null : level.key)}
+            >
+              <i />
+              <span>{level.label}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="traffic-light-help">
+        <strong>{selectedLevel ? selectedLevel.label : "Por qué se activa"}</strong>
+        <span>
+          {selectedLevel
+            ? `${selectedLevel.shortText} ${selectedLevel.longText}`
+            : `El cumplimiento global es ${result.percentage}%, dentro del rango de ${activeLevel.min}% a ${activeLevel.max}%. ${activeLevel.longText}`}
+        </span>
+      </div>
+      {!isCurrentModel && (
+        <p className="historical-classification">
+          <strong>Clasificación histórica</strong>
+          <span>{result.maturity.title}</span>
+        </p>
+      )}
     </div>
   );
 }
 
-function ResponseBankInsights({ result, title = "Lectura ICE por áreas", description, detail = true }: { result: DiagnosticResult; title?: string; description?: string; detail?: boolean }) {
+function ModuleBars({ scores, compact = false }: { scores: DiagnosticResult["moduleScores"]; compact?: boolean }) {
+  return (
+    <div className={`card module-results-card ${compact ? "compact" : ""}`}>
+      <h3>Resultados por sección</h3>
+      <div className="module-result-list">
+        {scores.map((score) => {
+          const level = getComplianceLevel(score.percentage);
+          return (
+            <div className="module-result-row" key={score.moduleId}>
+              <div className="module-result-heading">
+                <strong>{score.title}</strong>
+                <div className="module-result-meta">
+                  <span className="percentage-chip">{score.percentage}%</span>
+                  <span className={`maturity-chip ${level.color}`}>{level.label}</span>
+                </div>
+              </div>
+              <div className={`bar maturity-bar ${level.color}`}><i style={{ width: `${score.percentage}%` }} /></div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ResponseBankInsights({ result, title = "Lectura ICE por secciones", description, detail = true, showInstitutionalNote = false }: { result: DiagnosticResult; title?: string; description?: string; detail?: boolean; showInstitutionalNote?: boolean }) {
   const scoresWithBank = result.moduleScores.map((score) => ({
     score,
     bank: diagnosticResponseBank.find((item) => item.moduleId === score.moduleId),
@@ -2161,77 +2655,129 @@ function ResponseBankInsights({ result, title = "Lectura ICE por áreas", descri
         <h3>{title}</h3>
         {description && <p className="response-bank-intro">{description}</p>}
         <div className="area-summary-grid">
-          <div>
-            <strong>Áreas fuertes</strong>
-            {strongAreas.length ? strongAreas.map(({ score }) => <span key={score.moduleId}>{score.title} ({score.percentage}%)</span>) : <span>Sin módulos por encima de 80%.</span>}
+          <div className="area-summary-card strong">
+            <div className="area-summary-card-head">
+              <strong>Secciones fuertes</strong>
+              <b>{strongAreas.length}</b>
+            </div>
+            <p>Capacidades que muestran una base institucional favorable.</p>
+            {strongAreas.length ? <ul>{strongAreas.slice(0, 3).map(({ score }) => <li key={score.moduleId}>{score.title}</li>)}</ul> : <span>Sin secciones en rango fuerte.</span>}
           </div>
-          <div>
-            <strong>Áreas de atención</strong>
-            {attentionAreas.length ? attentionAreas.map(({ score }) => <span key={score.moduleId}>{score.title} ({score.percentage}%)</span>) : <span>Sin módulos en rango de atención.</span>}
+          <div className="area-summary-card attention">
+            <div className="area-summary-card-head">
+              <strong>Secciones de atención</strong>
+              <b>{attentionAreas.length}</b>
+            </div>
+            <p>Aspectos que conviene fortalecer para prevenir brechas.</p>
+            {attentionAreas.length ? <ul>{attentionAreas.slice(0, 3).map(({ score }) => <li key={score.moduleId}>{score.title}</li>)}</ul> : <span>Sin secciones en rango de atención.</span>}
           </div>
-          <div>
-            <strong>Áreas prioritarias</strong>
-            {priorityAreas.length ? priorityAreas.map(({ score }) => <span key={score.moduleId}>{score.title} ({score.percentage}%)</span>) : <span>Sin módulos críticos detectados.</span>}
+          <div className="area-summary-card priority">
+            <div className="area-summary-card-head">
+              <strong>Secciones prioritarias</strong>
+              <b>{priorityAreas.length}</b>
+            </div>
+            <p>Brechas que requieren atención y seguimiento oportuno.</p>
+            {priorityAreas.length ? <ul>{priorityAreas.slice(0, 3).map(({ score }) => <li key={score.moduleId}>{score.title}</li>)}</ul> : <span>Sin secciones críticas detectadas.</span>}
           </div>
         </div>
       </div>
 
-      {!detail && <p className="institutional-note">COPARMEX podrá vincularte con opciones de apoyo empresarial conforme a la disponibilidad de su red de afiliados.</p>}
-
-      {detail && priorityAreas.map(({ score, bank }) => bank && (
-        <div className="card response-detail priority" key={score.moduleId}>
-          <span className="eyebrow">Área prioritaria - {score.percentage}%</span>
-          <h3>{bank.title}</h3>
-          <p>{bank.summary}</p>
-          <div className="response-detail-grid">
-            <ResponseDetailBlock title="Hallazgo" items={bank.findings} />
-            <ResponseDetailBlock title="Implicación empresarial" items={bank.businessImplications} />
-            <ResponseDetailBlock title="Riesgo / compliance" items={bank.risks} />
-            <ResponseDetailBlock title="Recomendación profunda ICE" items={bank.recommendations} />
-            <ResponseDetailBlock title="Servicios sugeridos" items={bank.suggestedServices} />
-            <ResponseDetailBlock title="Tipos de apoyo que podrían ayudar" items={bank.suggestedProviderTypes} />
-            <ResponseDetailBlock title="Marco normativo relacionado" items={bank.legalFramework} />
-          </div>
-        </div>
-      ))}
-
-      {detail && attentionAreas.length > 0 && (
-        <div className="card response-detail">
-          <h3>Áreas de atención</h3>
-          {attentionAreas.map(({ score, bank }) => bank && (
-            <div className="attention-item" key={score.moduleId}>
-              <strong>{bank.title} ({score.percentage}%)</strong>
-              <p>{bank.findings[0]}</p>
-              <span>{bank.recommendations[0]}</span>
-            </div>
-          ))}
+      {detail && (
+        <div className="section-insight-list">
+          {scoresWithBank.filter(({ bank }) => bank).map(({ score, bank }, sectionIndex) => {
+            const status = getComplianceLevel(score.percentage);
+            const isMature = status.key === "mature";
+            const detectedContent = isMature
+              ? {
+                  findings: ["La empresa acredita un nivel adecuado de cumplimiento y organización en esta sección con base en las respuestas del autodiagnóstico."],
+                  implications: ["La documentación y prácticas actuales favorecen la continuidad, claridad y capacidad de respuesta de la empresa."],
+                  risks: ["No se identifican brechas críticas en esta sección. Conviene conservar evidencia vigente para sostener este nivel."],
+                }
+              : { findings: bank!.findings, implications: bank!.businessImplications, risks: bank!.risks };
+            const recommendationContent = isMature
+              ? {
+                  recommendations: ["Mantener la documentación actualizada y revisar periódicamente que siga reflejando la realidad actual de la empresa."],
+                  services: ["Revisión preventiva periódica y conservación ordenada de evidencia."],
+                  providers: ["Responsable interno de cumplimiento y asesores especializados cuando exista un cambio relevante."],
+                }
+              : { recommendations: bank!.recommendations, services: bank!.suggestedServices, providers: bank!.suggestedProviderTypes };
+            return (
+              <section className={`section-insight-group ${status.color}`} key={score.moduleId}>
+                <header className="section-insight-group-header">
+                  <span className={`section-status-dot ${status.color}`} aria-hidden="true" />
+                  <span className="section-insight-heading">
+                    <small>Sección {sectionIndex + 1}</small>
+                    <strong>{score.title}</strong>
+                    <small>{score.percentage}% · {status.label}</small>
+                  </span>
+                </header>
+                <div className="section-insight-accordions">
+                  <SectionInsightAccordion
+                    number={1}
+                    title="Diagnóstico"
+                    description="Qué se encontró y por qué puede afectar a la empresa."
+                  >
+                    <div className="section-insight-content diagnosis-layout">
+                      <SectionInsightList title="Hallazgo" items={detectedContent.findings} />
+                      <SectionInsightList title="Implicación empresarial" items={detectedContent.implications} />
+                      <SectionInsightList title="Riesgo / compliance" items={detectedContent.risks} wide />
+                    </div>
+                  </SectionInsightAccordion>
+                  <SectionInsightAccordion
+                    number={2}
+                    title="Plan de acción"
+                    description="Qué debería hacerse primero para regularizar o mantener la situación."
+                  >
+                    <div className="section-insight-content action-layout">
+                      <SectionInsightList title="Recomendación puntual" items={recommendationContent.recommendations} wide />
+                      <SectionInsightList title="Acción sugerida" items={recommendationContent.services} />
+                      <SectionInsightList title="Prioridad" items={[isMature ? "Conservación preventiva." : status.label]} />
+                      <SectionInsightList title="Responsable sugerido" items={recommendationContent.providers} wide />
+                    </div>
+                  </SectionInsightAccordion>
+                  <SectionInsightAccordion
+                    number={3}
+                    title="Sustento normativo"
+                    description="Marco normativo, mejores prácticas y documentos relacionados."
+                  >
+                    <div className="section-insight-content">
+                      <SectionInsightList title="Marco normativo relacionado" items={bank!.legalFramework} wide />
+                      <SectionInsightList title="Mejores prácticas o documentos relacionados" items={isMature ? ["Conservar evidencia documental y actualizarla cuando exista algún cambio relevante."] : bank!.suggestedServices} wide />
+                    </div>
+                  </SectionInsightAccordion>
+                </div>
+              </section>
+            );
+          })}
         </div>
       )}
 
-      {detail && strongAreas.length > 0 && (
-        <div className="card response-detail">
-          <h3>Áreas fuertes</h3>
-          {strongAreas.map(({ score }) => (
-            <div className="attention-item strong" key={score.moduleId}>
-              <strong>{score.title} ({score.percentage}%)</strong>
-              <span>La empresa presenta un avance favorable en este módulo.</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {detail && <p className="institutional-note">COPARMEX podrá vincularte con opciones de apoyo empresarial conforme a la disponibilidad de su red de afiliados.</p>}
+      {showInstitutionalNote && <p className="institutional-note">{platformContentConfig.generalTexts.coparmexSupport}</p>}
     </div>
   );
 }
 
-function ResponseDetailBlock({ title, items }: { title: string; items: string[] }) {
+function SectionInsightAccordion({ number, title, description, children }: { number: number; title: string; description: string; children: React.ReactNode }) {
   return (
-    <div>
+    <details className="section-layer">
+      <summary>
+        <b>{number}</b>
+        <span>
+          <strong>{title}</strong>
+          <small>{description}</small>
+        </span>
+        <ChevronDown size={18} />
+      </summary>
+      {children}
+    </details>
+  );
+}
+
+function SectionInsightList({ title, items, wide = false }: { title: string; items: string[]; wide?: boolean }) {
+  return (
+    <div className={`section-insight-item ${wide ? "wide" : ""}`}>
       <strong>{title}</strong>
-      <ul>
-        {items.map((item) => <li key={item}>{item}</li>)}
-      </ul>
+      <ul>{items.map((item) => <li key={item}>{item}</li>)}</ul>
     </div>
   );
 }
@@ -2249,8 +2795,29 @@ function Sidebar<T extends string>({ title, items, active, onSelect }: { title: 
 }
 
 function labelize(value: string) {
-  const labels: Record<string, string> = { autodiagnostico: "Autodiagnóstico", documentacion: "Documentación", estadisticas: "Estadísticas", configuracion: "Configuración", diagnosticos: "Diagnósticos", solicitudes: "Solicitudes" };
+  const labels: Record<string, string> = { dashboard: "Inicio", autodiagnostico: "Autodiagnóstico", recomendaciones: "Recomendaciones puntuales", documentacion: "Documentación", estadisticas: "Estadísticas", configuracion: "Configuración", diagnosticos: "Autodiagnósticos", solicitudes: "Solicitudes" };
   return labels[value] ?? value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function QuestionHelp({ question }: { question: { id: string; helpShort?: string; helpLong?: string } }) {
+  const [open, setOpen] = useState(false);
+  const configured = platformContentConfig.questionHelps.find((help) => help.id === question.id);
+  const shortText = question.helpShort ?? configured?.shortText;
+  const longText = question.helpLong ?? configured?.longText;
+  if (!shortText) return null;
+
+  return (
+    <div className={`context-help ${open ? "is-open" : ""}`}>
+      <button type="button" aria-label={`Ayuda: ${configured?.title ?? question.id}`} aria-expanded={open} onClick={() => setOpen((current) => !current)}>
+        <CircleHelp size={18} />
+      </button>
+      <div className="context-help-content" role="tooltip">
+        <strong>{configured?.title ?? "Ayuda"}</strong>
+        <span>{shortText}</span>
+        {longText && <small>{longText}</small>}
+      </div>
+    </div>
+  );
 }
 
 function Field({
@@ -2343,36 +2910,43 @@ function ChartBlock({ title, data }: { title: string; data: { title: string; val
 }
 
 function LevelDistribution({ diagnostics: adminDiagnostics }: { diagnostics: AdminDiagnosticRecord[] }) {
-  const data = [4, 3, 2, 1, 0].map((level) => ({ title: `Nivel ${level}`, value: adminDiagnostics.filter((diagnostic) => diagnostic.result.maturity.level === level).length * 12 }));
+  const data = platformContentConfig.trafficLight.map((level) => ({
+    title: level.label,
+    value: Math.round(
+      adminDiagnostics.filter((diagnostic) => diagnostic.result.percentage >= level.min && diagnostic.result.percentage <= level.max).length
+      / Math.max(adminDiagnostics.length, 1)
+      * 100,
+    ),
+  }));
   return <ChartBlock title="Empresas por nivel de madurez" data={data} />;
 }
 
-function PrepPanel({ onStart }: { onStart: () => void }) {
+function PrepPanel({ onStart, hasResult }: { onStart: () => void; hasResult: boolean }) {
   const previewQuestions = diagnosticModules[0].questions.slice().sort((a, b) => a.order - b.order).slice(0, 2);
   return (
     <div className="diagnostic-preview">
       <div className="card prepared">
         <ClipboardList size={34} />
-        <h2>Autodiagnóstico por módulos</h2>
-        <p>El cuestionario evalúa constitución, gobierno corporativo, libros, representación legal, contratos, cumplimiento y continuidad empresarial.</p>
+        <h2>Autodiagnóstico por secciones</h2>
+        <p>El cuestionario evalúa constitución, gobierno, libros, representación legal, contratos, cumplimiento y continuidad y legado empresarial.</p>
         <div className="progress"><span style={{ width: "14%" }} /></div>
-        <div className="module-status"><strong>Módulo 1 de {diagnosticModules.length}</strong><span>{diagnosticModules[0].title}</span></div>
+        <div className="module-status"><strong>Sección 1 de {diagnosticModules.length}</strong><span>{diagnosticModules[0].title}</span></div>
       </div>
       <div className="question-list preview-questions">
-        {previewQuestions.map((question, index) => (
+        {previewQuestions.map((question) => (
           <article className="question-card" key={question.id}>
             <span className="question-id">{question.id}</span>
             <h3>{question.text}</h3>
             <div className="segmented">
-              {question.options.map((option) => (
-                <button key={option.label} className={index === 0 && option.label === "Sí" ? "active" : ""}>{option.label}</button>
+              {[...question.options].sort((left, right) => answerDisplayOrder(left.label) - answerDisplayOrder(right.label)).map((option) => (
+                <button type="button" key={option.label}>{option.label}</button>
               ))}
             </div>
           </article>
         ))}
       </div>
       <div className="actions-row">
-        <button className="primary" onClick={onStart}>Actualizar diagnóstico</button>
+        <button className="primary" onClick={onStart}>{hasResult ? "Actualizar autodiagnóstico" : "Iniciar autodiagnóstico"}</button>
       </div>
     </div>
   );
@@ -2477,6 +3051,9 @@ function AllObservations() {
   const [savedObservations, setSavedObservations] = useState<ObservationRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [observationSearch, setObservationSearch] = useState("");
+  const [observationCompany, setObservationCompany] = useState("");
+  const [observationAuthor, setObservationAuthor] = useState("");
 
   useEffect(() => {
     let mounted = true;
@@ -2505,13 +3082,26 @@ function AllObservations() {
     createdAt: observation.date,
   }));
   const list = savedObservations.length ? savedObservations : localObservations;
+  const visibleObservations = list.filter((observation) => {
+    const search = observationSearch.trim().toLocaleLowerCase("es-MX");
+    return (!search || `${observation.companyName} ${observation.author} ${observation.text}`.toLocaleLowerCase("es-MX").includes(search)) &&
+      (!observationCompany || observation.companyName === observationCompany) &&
+      (!observationAuthor || observation.author === observationAuthor);
+  });
+  const observationCompanies = [...new Set(list.map((item) => item.companyName))].sort((a, b) => a.localeCompare(b, "es-MX"));
+  const observationAuthors = [...new Set(list.map((item) => item.author))].sort((a, b) => a.localeCompare(b, "es-MX"));
 
   return (
     <div className="card">
       <h3>Observaciones institucionales</h3>
       {loading && <p className="muted">Consultando observaciones...</p>}
       {error && <p className="form-error">{error}</p>}
-      {list.length ? list.map((observation) => (
+      <div className="admin-filter-bar observation-filters">
+        <label className="field"><span>Buscar</span><input value={observationSearch} onChange={(event) => setObservationSearch(event.target.value)} placeholder="Empresa, autor o texto" /></label>
+        <Select label="Empresa" value={observationCompany} onChange={setObservationCompany} options={["", ...observationCompanies]} />
+        <Select label="Autor" value={observationAuthor} onChange={setObservationAuthor} options={["", ...observationAuthors]} />
+      </div>
+      {visibleObservations.length ? visibleObservations.map((observation) => (
         <p className="note" key={observation.id}>
           <strong>{observation.companyName}</strong>
           <span>{observation.author} - {observation.authorRole === "company" ? "Empresa" : "COPARMEX"} - {formatSavedDate(observation.createdAt)}</span>
@@ -2522,8 +3112,48 @@ function AllObservations() {
   );
 }
 
-function ProfileCard({ company, result }: { company: CompanyProfile; result: DiagnosticResult | null }) {
-  return <div className="card profile"><h3>Perfil empresa</h3>{[["Nombre", company.name], ["Folio", getCompanyFolio(company)], ["Sector", company.sector], ["Ciudad", company.city], ["Estado", company.state], ["Representante", company.representative], ["Correo", company.email], ["Teléfono", company.phone], ["Registro", formatDate(company.registeredAt)], ["Seguimiento", company.followUpStatus], ["Madurez", result?.maturity.title ?? "Sin diagnóstico"]].map(([label, value]) => <p key={label}><span>{label}</span><strong>{value}</strong></p>)}</div>;
+function ProfileCard({ company, result, hideFollowUp = false }: { company: CompanyProfile; result: DiagnosticResult | null; hideFollowUp?: boolean }) {
+  const maturity = result ? getComplianceLevel(result.percentage) : null;
+  return (
+    <div className="card profile profile-executive">
+      <div className="profile-heading">
+        <div>
+          <span className="eyebrow">Empresa afiliada</span>
+          <h3>Perfil empresa</h3>
+        </div>
+        <div className="profile-badges">
+          <span className={`maturity-chip ${maturity?.color ?? ""}`}>{maturity?.label ?? "Sin autodiagnóstico"}</span>
+          {!hideFollowUp && <span className="profile-status-chip">{company.followUpStatus}</span>}
+        </div>
+      </div>
+      <div className="profile-block-grid">
+        <section className="profile-block">
+          <h4>Información general</h4>
+          <ProfileField label="Nombre" value={company.name} />
+          <ProfileField label="Folio" value={getCompanyFolio(company)} />
+          <ProfileField label="Sector" value={company.sector} />
+          <ProfileField label="Registro" value={formatDate(company.registeredAt)} />
+        </section>
+        <section className="profile-block">
+          <h4>Contacto</h4>
+          <ProfileField label="Representante" value={company.representative} />
+          <ProfileField label="Correo" value={company.email} />
+          <ProfileField label="Teléfono" value={company.phone} />
+        </section>
+        <section className="profile-block">
+          <h4>{hideFollowUp ? "Ubicación" : "Ubicación y seguimiento"}</h4>
+          <ProfileField label="Ciudad" value={company.city} />
+          <ProfileField label="Estado" value={company.state} />
+          {!hideFollowUp && <ProfileField label="Seguimiento" value={company.followUpStatus} />}
+          <ProfileField label="Madurez" value={maturity?.label ?? "Sin autodiagnóstico"} />
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function ProfileField({ label, value }: { label: string; value?: React.ReactNode }) {
+  return <p><span>{label}</span><strong>{value || "No capturado"}</strong></p>;
 }
 
 function DocumentsPanel({ companyId }: { companyId: string }) {
@@ -2537,70 +3167,593 @@ function ActivityPanel({ companyId }: { companyId: string }) {
 function DiagnosticsPanel({ diagnostics: adminDiagnostics, loading, error }: { diagnostics: AdminDiagnosticRecord[]; loading: boolean; error: string }) {
   return (
     <div className="card">
-      <h3>Diagnósticos</h3>
-      {loading && <p className="muted">Consultando diagnósticos...</p>}
+      <h3>Autodiagnósticos</h3>
+      {loading && <p className="muted">Consultando autodiagnósticos...</p>}
       {error && <p className="form-error">{error}</p>}
       {adminDiagnostics.length ? adminDiagnostics.map((diagnostic) => (
         <p className="note" key={diagnostic.id}>
           <strong>{diagnostic.id} - {diagnostic.companyName}</strong>
-          <span>{diagnostic.result.percentage}% - {diagnostic.result.maturity.title} - {formatDate(diagnostic.completedAt)}</span>
+          <span>{diagnostic.result.percentage}% - {getComplianceLevel(diagnostic.result.percentage).label} - {formatDate(diagnostic.completedAt)}</span>
           {diagnostic.source === "saved" ? "Resultado guardado por la empresa." : "Resultado institucional de referencia."}
         </p>
-      )) : <p className="muted">Aún no hay diagnósticos registrados.</p>}
+      )) : <p className="muted">Aún no hay autodiagnósticos registrados.</p>}
     </div>
   );
 }
 
-function ReportsPanel({ onPdf }: { onPdf: () => void }) {
-  const reportItems = [
-    ["Reporte por empresa", "Resultado, hallazgos, recomendaciones y expediente."],
-    ["Reporte mensual agregado", "Indicadores globales para comité directivo."],
-    ["Reporte por sector", "Comparativo de cumplimiento por actividad económica."],
-    ["Reporte de brechas corporativas", "Riesgos frecuentes y módulos con menor calificación."],
-    ["Empresas interesadas en asesoría", "Listado priorizado para seguimiento institucional."],
-  ];
+type AdministrativeReportRow = {
+  company: AdminCompany;
+  folio: string;
+  employees: number | null;
+  size: string;
+  hasDiagnostic: boolean;
+  level: string;
+  percentage: number | null;
+  semaphore: string;
+  observations: number;
+  attentionReason: string;
+};
+
+function ReportsPanelV3({ diagnostics: adminDiagnostics }: { diagnostics: AdminDiagnosticRecord[] }) {
+  const [reportType, setReportType] = useState<"companies" | "aggregate" | "priority">("companies");
+  const [systemCompanies, setSystemCompanies] = useState<AdminCompany[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [diagnosticFilter, setDiagnosticFilter] = useState("Todos");
+  const [levelFilter, setLevelFilter] = useState("Todos");
+  const [sectorFilter, setSectorFilter] = useState("Todos");
+  const [sizeFilter, setSizeFilter] = useState("Todos");
+  const [observationFilter, setObservationFilter] = useState("Todas");
+  const [sortBy, setSortBy] = useState("Empresa");
+
+  useEffect(() => {
+    let mounted = true;
+    listCompanies()
+      .then((items) => {
+        if (mounted) setSystemCompanies(items.map((item) => mapCompanyRecord(item)));
+      })
+      .catch((requestError) => {
+        console.error("No fue posible consultar el padrón para reportes.", requestError);
+        if (mounted) setError("No fue posible consultar el padrón registrado. Se muestran datos institucionales de referencia.");
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const reportCompanies: AdminCompany[] = systemCompanies.length ? systemCompanies : companies.map((company) => ({ ...company, source: "mock" as const }));
+  const rows: AdministrativeReportRow[] = reportCompanies.map((company) => {
+    const diagnostic = adminDiagnostics.find((item) => item.companyId === company.id);
+    const percentage = diagnostic?.result.percentage ?? null;
+    const compliance = percentage === null ? null : getComplianceLevel(percentage);
+    const observationCount = observations.filter((item) => item.companyId === company.id).length;
+    const reasons = [
+      !diagnostic ? "Sin autodiagnóstico" : "",
+      compliance?.key === "critical" ? "Riesgo crítico" : "",
+      compliance?.key === "immediate" ? "Atención inmediata" : "",
+      percentage !== null && percentage < 70 ? "Cumplimiento menor a 70%" : "",
+      observationCount > 0 ? "Con observaciones" : "",
+    ].filter(Boolean);
+    return {
+      company,
+      folio: getCompanyFolio(company),
+      employees: getCompanyEmployeeCount(company),
+      size: getCompanySize(company),
+      hasDiagnostic: Boolean(diagnostic && percentage !== null),
+      level: compliance?.label ?? "Pendiente",
+      percentage,
+      semaphore: compliance?.label ?? "Pendiente",
+      observations: observationCount,
+      attentionReason: reasons.join(" · ") || "Sin motivo prioritario",
+    };
+  });
+  const priorityRows = rows.filter((row) => !row.hasDiagnostic || row.percentage === null || row.percentage < 70 || row.observations > 0);
+  const baseRows = reportType === "priority" ? priorityRows : rows;
+  const visibleRows = baseRows
+    .filter((row) => {
+      const query = search.trim().toLocaleLowerCase("es-MX");
+      const searchable = `${row.company.name} ${row.folio} ${row.company.representative} ${row.company.email}`.toLocaleLowerCase("es-MX");
+      return (!query || searchable.includes(query)) &&
+        (diagnosticFilter === "Todos" || (row.hasDiagnostic ? "Con autodiagnóstico" : "Sin autodiagnóstico") === diagnosticFilter) &&
+        (levelFilter === "Todos" || row.level === levelFilter) &&
+        (sectorFilter === "Todos" || row.company.sector === sectorFilter) &&
+        (sizeFilter === "Todos" || row.size === sizeFilter || (sizeFilter === "Sin dato" && row.size === "No calculado")) &&
+        (observationFilter === "Todas" || (row.observations > 0 ? "Con observaciones" : "Sin observaciones") === observationFilter);
+    })
+    .sort((left, right) => {
+      const values: Record<string, [string | number, string | number]> = {
+        Folio: [left.folio, right.folio],
+        Empresa: [left.company.name, right.company.name],
+        Sector: [left.company.sector, right.company.sector],
+        "Número de empleados": [left.employees ?? -1, right.employees ?? -1],
+        "Tamaño empresa": [left.size, right.size],
+        Autodiagnóstico: [left.hasDiagnostic ? 1 : 0, right.hasDiagnostic ? 1 : 0],
+        Nivel: [left.level, right.level],
+        Porcentaje: [left.percentage ?? -1, right.percentage ?? -1],
+        Observaciones: [left.observations, right.observations],
+      };
+      const [a, b] = values[sortBy] ?? values.Empresa;
+      return typeof a === "number" && typeof b === "number" ? b - a : String(a).localeCompare(String(b), "es-MX");
+    });
+  const diagnosedRows = rows.filter((row) => row.hasDiagnostic);
+  const average = Math.round(diagnosedRows.reduce((sum, row) => sum + (row.percentage ?? 0), 0) / Math.max(diagnosedRows.length, 1));
+  const sectors = [...new Set(rows.map((row) => row.company.sector || "Sin dato"))].sort((a, b) => a.localeCompare(b, "es-MX"));
+  const moduleAverages = diagnosticModules.map((module) => ({
+    title: module.title,
+    value: Math.round(adminDiagnostics.reduce((sum, diagnostic) => sum + (diagnostic.result.moduleScores.find((score) => score.moduleId === module.id)?.percentage ?? 0), 0) / Math.max(adminDiagnostics.length, 1)),
+  }));
+  const exportRows = visibleRows.map((row) => reportType === "priority" ? ({
+    Folio: row.folio,
+    Empresa: row.company.name,
+    Representante: row.company.representative || "Sin dato",
+    Correo: row.company.email || "Sin dato",
+    Sector: row.company.sector || "Sin dato",
+    "Número de empleados": row.employees ?? "Sin dato",
+    "Tamaño empresa": row.size === "No calculado" ? "Sin dato" : row.size,
+    Autodiagnóstico: row.hasDiagnostic ? "Sí" : "No",
+    Nivel: row.level,
+    Porcentaje: row.percentage === null ? "Sin dato" : `${row.percentage}%`,
+    "Motivo de atención": row.attentionReason,
+    Observaciones: row.observations,
+  }) : ({
+    Folio: row.folio,
+    Empresa: row.company.name,
+    Representante: row.company.representative || "Sin dato",
+    Correo: row.company.email || "Sin dato",
+    Sector: row.company.sector || "Sin dato",
+    "Número de empleados": row.employees ?? "Sin dato",
+    "Tamaño empresa": row.size === "No calculado" ? "Sin dato" : row.size,
+    Autodiagnóstico: row.hasDiagnostic ? "Sí" : "No",
+    Nivel: row.level,
+    Porcentaje: row.percentage === null ? "Sin dato" : `${row.percentage}%`,
+    "Semáforo de cumplimiento": row.semaphore,
+    Observaciones: row.observations,
+  }));
+
   return (
-    <div className="card prepared">
-      <Download size={34} />
-      <h2>Reportes institucionales</h2>
-      <p>Estructura preparada para generar reportes PDF por empresa, reporte agregado mensual e indicadores por sector.</p>
-      <div className="report-grid">
-        {reportItems.map(([title, description]) => (
-          <button className="report-action" key={title} onClick={onPdf}>
-            <FileText size={20} />
-            <strong>{title}</strong>
-            <span>{description}</span>
-          </button>
-        ))}
+    <section className="reports-functional">
+      <SectionTitle title="Reportes institucionales" subtitle="Consulta, filtra y exporta información administrativa del padrón empresarial." />
+      {loading && <div className="save-status">Consultando padrón empresarial...</div>}
+      {error && <div className="save-status error">{error}</div>}
+      <div className="report-selector">
+        <button className={reportType === "companies" ? "active" : ""} onClick={() => setReportType("companies")}><Building2 size={19} /><strong>Reporte de empresas</strong><span>{rows.length} empresas registradas.</span></button>
+        <button className={reportType === "aggregate" ? "active" : ""} onClick={() => setReportType("aggregate")}><BarChart3 size={19} /><strong>Reporte agregado ICE</strong><span>{diagnosedRows.length} resultados consolidados.</span></button>
+        <button className={reportType === "priority" ? "active" : ""} onClick={() => setReportType("priority")}><ShieldCheck size={19} /><strong>Atención prioritaria</strong><span>{priorityRows.length} empresas requieren atención.</span></button>
       </div>
+      {reportType === "aggregate" ? (
+        <>
+          <div className="kpi-grid report-kpis">
+            <Kpi icon={<Building2 />} label="Empresas registradas" value={rows.length} />
+            <Kpi icon={<CheckCircle2 />} label="Con autodiagnóstico" value={diagnosedRows.length} />
+            <Kpi icon={<ClipboardList />} label="Sin autodiagnóstico" value={rows.length - diagnosedRows.length} />
+            <Kpi icon={<BarChart3 />} label="Promedio general ICE" value={`${average}%`} />
+          </div>
+          <div className="dashboard-grid">
+            <LevelDistribution diagnostics={adminDiagnostics} />
+            <ChartBlock title="Promedio por sección" data={moduleAverages} />
+          </div>
+        </>
+      ) : (
+        <div className="card report-table-card">
+          <div className="report-priority-heading">
+            <div>
+              <h3>{reportType === "priority" ? "Reporte de atención prioritaria" : "Reporte de empresas"}</h3>
+              <p className="muted">{reportType === "priority" ? "Empresas sin autodiagnóstico, con cumplimiento menor a 70% o con observaciones." : "Padrón empresarial con estado de autodiagnóstico y resultados ICE."}</p>
+            </div>
+            <div className="report-export-actions">
+              <button className="secondary" onClick={() => exportCsv(reportType === "priority" ? "atencion-prioritaria.csv" : "reporte-empresas.csv", exportRows)}><Download size={17} /> Descargar CSV</button>
+              <button className="primary" onClick={() => exportExcel(reportType === "priority" ? "atencion-prioritaria.xls" : "reporte-empresas.xls", reportType === "priority" ? "Atención prioritaria" : "Reporte de empresas", exportRows)}><FileSpreadsheet size={17} /> Descargar Excel</button>
+            </div>
+          </div>
+          <div className="card admin-filter-bar report-filter-bar">
+            <label className="field"><span>Buscar</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Empresa, folio, correo o representante" /></label>
+            <Select label="Autodiagnóstico" value={diagnosticFilter} onChange={setDiagnosticFilter} options={["Todos", "Con autodiagnóstico", "Sin autodiagnóstico"]} />
+            <Select label="Nivel" value={levelFilter} onChange={setLevelFilter} options={["Todos", "Madura", "Área de oportunidad", "Atención inmediata", "Riesgo crítico", "Pendiente"]} />
+            <Select label="Sector" value={sectorFilter} onChange={setSectorFilter} options={["Todos", ...sectors]} />
+            <Select label="Tamaño" value={sizeFilter} onChange={setSizeFilter} options={["Todos", "Micro", "Pequeña", "Mediana", "Grande", "Sin dato"]} />
+            <Select label="Observaciones" value={observationFilter} onChange={setObservationFilter} options={["Todas", "Con observaciones", "Sin observaciones"]} />
+            <Select label="Ordenar por" value={sortBy} onChange={setSortBy} options={["Empresa", "Folio", "Sector", "Número de empleados", "Tamaño empresa", "Autodiagnóstico", "Nivel", "Porcentaje", "Observaciones"]} />
+          </div>
+          <p className="admin-list-count">{visibleRows.length} empresas visibles de {baseRows.length}</p>
+          <AdministrativeReportTable rows={visibleRows} priority={reportType === "priority"} />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function AdministrativeReportTable({ rows, priority }: { rows: AdministrativeReportRow[]; priority: boolean }) {
+  return (
+    <div className="report-table-wrap">
+      <table className={`report-table ${priority ? "priority" : ""}`}>
+        <thead><tr><th>Folio</th><th>Empresa</th><th>Representante</th><th>Correo</th><th>Sector</th><th>Empleados</th><th>Tamaño</th><th>Autodiagnóstico</th><th>Nivel</th><th>%</th>{priority ? <th>Motivo de atención</th> : <th>Semáforo</th>}<th>Observaciones</th></tr></thead>
+        <tbody>{rows.map((row) => <tr key={row.company.id}>
+          <td>{row.folio || "Sin dato"}</td><td>{row.company.name || "Sin dato"}</td><td>{row.company.representative || "Sin dato"}</td><td>{row.company.email || "Sin dato"}</td><td>{row.company.sector || "Sin dato"}</td><td>{row.employees ?? "Sin dato"}</td>
+          <td><span className="report-size">{row.size === "No calculado" ? "Sin dato" : row.size}</span></td>
+          <td><span className={`report-status ${row.hasDiagnostic ? "yes" : "no"}`}>{row.hasDiagnostic ? "Sí" : "No"}</span></td>
+          <td><span className={`report-level ${getReportLevelTone(row.level)}`}>{row.level}</span></td><td>{row.percentage === null ? "Sin dato" : `${row.percentage}%`}</td>
+          <td>{priority ? row.attentionReason : <span className={`report-level ${getReportLevelTone(row.semaphore)}`}>{row.semaphore}</span>}</td><td>{row.observations}</td>
+        </tr>)}</tbody>
+      </table>
     </div>
   );
+}
+
+function ReportsPanelV2({ diagnostics: adminDiagnostics }: { stats: any; diagnostics: AdminDiagnosticRecord[] }) {
+  const [reportType, setReportType] = useState<"companies" | "aggregate" | "priority">("companies");
+  const [reportSearch, setReportSearch] = useState("");
+  const [systemCompanies, setSystemCompanies] = useState<AdminCompany[]>([]);
+  const [companiesLoading, setCompaniesLoading] = useState(true);
+  const [companiesError, setCompaniesError] = useState("");
+
+  useEffect(() => {
+    let mounted = true;
+    listCompanies()
+      .then((items) => {
+        if (!mounted) return;
+        setSystemCompanies(items.map((item) => mapCompanyRecord(item)));
+        setCompaniesError("");
+      })
+      .catch((error) => {
+        console.error("No fue posible consultar el padrón para reportes.", error);
+        if (mounted) setCompaniesError("No fue posible consultar el padrón registrado. Se muestran datos institucionales de referencia.");
+      })
+      .finally(() => {
+        if (mounted) setCompaniesLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const reportCompanies: AdminCompany[] = systemCompanies.length
+    ? systemCompanies
+    : companies.map((company) => ({ ...company, source: "mock" as const }));
+  const rows = reportCompanies.map((company) => {
+    const diagnostic = adminDiagnostics.find((item) => item.companyId === company.id);
+    const level = diagnostic ? getComplianceLevel(diagnostic.result.percentage) : null;
+    return {
+      company,
+      diagnostic,
+      folio: getCompanyFolio(company),
+      employees: getCompanyEmployeeCount(company),
+      size: getCompanySize(company),
+      level: level?.label ?? "Pendiente",
+      percentage: diagnostic?.result.percentage ?? null,
+      observations: observations.filter((item) => item.companyId === company.id).length,
+    };
+  });
+  const diagnosedRows = rows.filter((row) => row.diagnostic);
+  const priorityRows = rows.filter((row) => {
+    const levelKey = row.diagnostic ? getComplianceLevel(row.percentage ?? 0).key : "pending";
+    return levelKey === "critical" || levelKey === "immediate" || !row.diagnostic || row.observations > 0 || row.company.followUpStatus === "Sin iniciar";
+  });
+  const visiblePriorityRows = priorityRows.filter((row) => {
+    const search = reportSearch.trim().toLocaleLowerCase("es-MX");
+    return !search || `${row.company.name} ${row.folio} ${row.company.representative} ${row.company.email}`.toLocaleLowerCase("es-MX").includes(search);
+  });
+  const average = Math.round(diagnosedRows.reduce((sum, row) => sum + (row.percentage ?? 0), 0) / Math.max(diagnosedRows.length, 1));
+  const criticalCount = diagnosedRows.filter((row) => getComplianceLevel(row.percentage ?? 0).key === "critical").length;
+  const immediateCount = diagnosedRows.filter((row) => getComplianceLevel(row.percentage ?? 0).key === "immediate").length;
+  const companySizeData = ["Micro", "Pequeña", "Mediana", "Grande", "No calculado"].map((size) => ({
+    title: size,
+    value: Math.round((rows.filter((row) => row.size === size).length / Math.max(rows.length, 1)) * 100),
+  }));
+  const sectorData = [...new Set(rows.map((row) => row.company.sector || "No especificado"))]
+    .map((sector) => ({
+      title: sector,
+      value: Math.round((rows.filter((row) => (row.company.sector || "No especificado") === sector).length / Math.max(rows.length, 1)) * 100),
+    }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 8);
+  const moduleAverages = diagnosticModules.map((module) => ({
+    title: module.title,
+    value: Math.round(adminDiagnostics.reduce((sum, diagnostic) => sum + (diagnostic.result.moduleScores.find((score) => score.moduleId === module.id)?.percentage ?? 0), 0) / Math.max(adminDiagnostics.length, 1)),
+  }));
+  const sectorAverages = [...new Set(adminDiagnostics.map((diagnostic) => diagnostic.companySector))]
+    .map((sector) => {
+      const sectorDiagnostics = adminDiagnostics.filter((diagnostic) => diagnostic.companySector === sector);
+      return {
+        title: sector,
+        value: Math.round(sectorDiagnostics.reduce((sum, diagnostic) => sum + diagnostic.result.percentage, 0) / Math.max(sectorDiagnostics.length, 1)),
+      };
+    })
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 8);
+  const companyExportRows = rows.map((row) => ({
+    Folio: row.folio,
+    Empresa: row.company.name,
+    Representante: row.company.representative,
+    Correo: row.company.email,
+    Sector: row.company.sector,
+    Empleados: row.employees ?? "",
+    "Tamaño estimado": row.size,
+    Nivel: row.level,
+    Porcentaje: row.percentage ?? "",
+    Observaciones: row.observations,
+    Seguimiento: row.company.followUpStatus,
+  }));
+  const priorityExportRows = visiblePriorityRows.map((row) => ({
+    Folio: row.folio,
+    Empresa: row.company.name,
+    Representante: row.company.representative,
+    Correo: row.company.email,
+    Sector: row.company.sector,
+    Nivel: row.level,
+    Porcentaje: row.percentage ?? "",
+    Observaciones: row.observations,
+    Seguimiento: row.company.followUpStatus,
+  }));
+  const aggregateExportRows = [
+    { Indicador: "Empresas registradas", Valor: rows.length },
+    { Indicador: "Empresas con autodiagnóstico", Valor: diagnosedRows.length },
+    { Indicador: "Empresas pendientes", Valor: Math.max(rows.length - diagnosedRows.length, 0) },
+    { Indicador: "Promedio general ICE", Valor: `${average}%` },
+    { Indicador: "Empresas en riesgo crítico", Valor: criticalCount },
+    { Indicador: "Empresas en atención inmediata", Valor: immediateCount },
+  ];
+
+  return (
+    <section className="reports-functional">
+      <SectionTitle title="Reportes institucionales" subtitle="Genera información útil para padrón, indicadores ICE y seguimiento prioritario." />
+      {companiesLoading && <div className="save-status">Consultando padrón empresarial...</div>}
+      {companiesError && <div className="save-status error">{companiesError}</div>}
+      <div className="report-selector">
+        <button className={reportType === "companies" ? "active" : ""} onClick={() => setReportType("companies")}><Building2 size={19} /><strong>Padrón empresarial</strong><span>{rows.length} empresas registradas y disponibles para exportación.</span></button>
+        <button className={reportType === "aggregate" ? "active" : ""} onClick={() => setReportType("aggregate")}><BarChart3 size={19} /><strong>Resumen agregado ICE</strong><span>{diagnosedRows.length} empresas con resultados consolidados.</span></button>
+        <button className={reportType === "priority" ? "active" : ""} onClick={() => setReportType("priority")}><ShieldCheck size={19} /><strong>Seguimiento prioritario</strong><span>{priorityRows.length} empresas requieren revisión o seguimiento.</span></button>
+      </div>
+
+      {reportType === "companies" && (
+        <>
+          <div className="card report-intro-card">
+            <div>
+              <h3>Padrón empresarial</h3>
+              <p className="muted">Resumen del padrón registrado. La exportación incluye contacto, sector, tamaño, nivel ICE y seguimiento.</p>
+            </div>
+            <button className="primary" onClick={() => exportCsv("padron-empresarial.csv", companyExportRows)}><Download size={17} /> Exportar padrón CSV</button>
+          </div>
+          <div className="kpi-grid report-kpis">
+            <Kpi icon={<Building2 />} label="Empresas registradas" value={rows.length} />
+            <Kpi icon={<CheckCircle2 />} label="Con autodiagnóstico" value={diagnosedRows.length} />
+            <Kpi icon={<ClipboardList />} label="Sin autodiagnóstico" value={Math.max(rows.length - diagnosedRows.length, 0)} />
+            <Kpi icon={<UserRoundCheck />} label="Con seguimiento activo" value={rows.filter((row) => row.company.followUpStatus === "En seguimiento").length} />
+          </div>
+          <div className="dashboard-grid report-summary-grid">
+            <ChartBlock title="Distribución por tamaño" data={companySizeData} />
+            <ChartBlock title="Principales sectores" data={sectorData} />
+          </div>
+        </>
+      )}
+
+      {reportType === "aggregate" && (
+        <>
+          <div className="card report-intro-card">
+            <div>
+              <h3>Resumen agregado ICE</h3>
+              <p className="muted">Indicadores consolidados de las empresas que ya completaron su autodiagnóstico.</p>
+            </div>
+            <button className="primary" onClick={() => exportCsv("resumen-agregado-ice.csv", aggregateExportRows)}><Download size={17} /> Exportar resumen CSV</button>
+          </div>
+          <div className="kpi-grid report-kpis">
+            <Kpi icon={<CheckCircle2 />} label="Con autodiagnóstico" value={diagnosedRows.length} />
+            <Kpi icon={<BarChart3 />} label="Promedio general ICE" value={`${average}%`} />
+            <Kpi icon={<ShieldCheck />} label="Riesgo crítico" value={criticalCount} />
+            <Kpi icon={<UserRoundCheck />} label="Atención inmediata" value={immediateCount} />
+          </div>
+          <div className="dashboard-grid">
+            <LevelDistribution diagnostics={adminDiagnostics} />
+            <ChartBlock title="Promedio por sección" data={moduleAverages} />
+            <ChartBlock title="Promedio por sector" data={sectorAverages} />
+          </div>
+        </>
+      )}
+
+      {reportType === "priority" && (
+        <div className="card report-table-card">
+          <div className="report-priority-heading">
+            <div>
+              <h3>Seguimiento prioritario</h3>
+              <p className="muted">Empresas sin autodiagnóstico, con resultados críticos, observaciones o seguimiento pendiente.</p>
+            </div>
+            <div className="report-priority-count"><strong>{priorityRows.length}</strong><span>empresas identificadas</span></div>
+          </div>
+          <div className="report-toolbar">
+            <label className="field"><span>Buscar</span><input value={reportSearch} onChange={(event) => setReportSearch(event.target.value)} placeholder="Empresa, folio, representante o correo" /></label>
+            <button className="secondary" onClick={() => exportCsv("seguimiento-prioritario.csv", priorityExportRows)}><Download size={17} /> Exportar seguimiento CSV</button>
+          </div>
+          <p className="admin-list-count">{visiblePriorityRows.length} empresas visibles de {priorityRows.length}</p>
+          <ReportCompaniesTable rows={visiblePriorityRows} />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ReportsPanel({ stats, diagnostics: adminDiagnostics }: { stats: any; diagnostics: AdminDiagnosticRecord[] }) {
+  const [reportType, setReportType] = useState<"companies" | "aggregate" | "priority">("companies");
+  const [reportSearch, setReportSearch] = useState("");
+  const rows = companies.map((company) => {
+    const diagnostic = adminDiagnostics.find((item) => item.companyId === company.id);
+    const level = diagnostic ? getComplianceLevel(diagnostic.result.percentage) : null;
+    return {
+      company,
+      diagnostic,
+      folio: getCompanyFolio(company),
+      employees: getCompanyEmployeeCount(company),
+      size: getCompanySize(company),
+      level: level?.label ?? "Pendiente",
+      percentage: diagnostic?.result.percentage ?? null,
+      observations: observations.filter((item) => item.companyId === company.id).length,
+    };
+  });
+  const visibleRows = rows.filter((row) => {
+    const search = reportSearch.trim().toLocaleLowerCase("es-MX");
+    const matchesSearch = !search || `${row.company.name} ${row.folio} ${row.company.representative} ${row.company.email}`.toLocaleLowerCase("es-MX").includes(search);
+    const priority = row.level === "Riesgo crítico" || row.level === "Atención inmediata" || row.level === "Pendiente" || row.observations > 0 || row.company.followUpStatus === "Sin iniciar";
+    return matchesSearch && (reportType !== "priority" || priority);
+  });
+
+  const exportRows = visibleRows.map((row) => ({
+    Folio: row.folio,
+    Empresa: row.company.name,
+    Representante: row.company.representative,
+    Correo: row.company.email,
+    Sector: row.company.sector,
+    Empleados: row.employees ?? "",
+    "Tamaño estimado": row.size,
+    Nivel: row.level,
+    Porcentaje: row.percentage ?? "",
+    Semáforo: row.level,
+    Observaciones: row.observations,
+    Seguimiento: row.company.followUpStatus,
+  }));
+
+  return (
+    <section className="reports-functional">
+      <SectionTitle title="Reportes institucionales" subtitle="Consulta información operativa, indicadores agregados y empresas que requieren seguimiento." />
+      <div className="report-selector">
+        <button className={reportType === "companies" ? "active" : ""} onClick={() => setReportType("companies")}><Building2 size={19} /><strong>Reporte de empresas</strong><span>Listado operativo completo.</span></button>
+        <button className={reportType === "aggregate" ? "active" : ""} onClick={() => setReportType("aggregate")}><BarChart3 size={19} /><strong>Reporte agregado ICE</strong><span>Indicadores y distribución general.</span></button>
+        <button className={reportType === "priority" ? "active" : ""} onClick={() => setReportType("priority")}><ShieldCheck size={19} /><strong>Atención prioritaria</strong><span>Empresas que requieren seguimiento.</span></button>
+      </div>
+      {reportType === "aggregate" ? (
+        <>
+          <div className="kpi-grid report-kpis">
+            <Kpi icon={<Building2 />} label="Total de empresas" value={companies.length} />
+            <Kpi icon={<CheckCircle2 />} label="Con autodiagnóstico" value={adminDiagnostics.length} />
+            <Kpi icon={<ClipboardList />} label="Pendientes" value={Math.max(companies.length - adminDiagnostics.length, 0)} />
+            <Kpi icon={<BarChart3 />} label="Promedio general" value={`${stats.average}%`} />
+          </div>
+          <div className="dashboard-grid">
+            <LevelDistribution diagnostics={stats.diagnostics} />
+            <ChartBlock title="Promedio por sección" data={stats.moduleAverages} />
+            <ChartBlock title="Promedio por sector" data={stats.sectors.map((sector: any) => ({ title: sector.sector, value: sector.average || sector.count * 10 }))} />
+          </div>
+        </>
+      ) : (
+        <div className="card report-table-card">
+          <div className="report-toolbar">
+            <label className="field"><span>Buscar</span><input value={reportSearch} onChange={(event) => setReportSearch(event.target.value)} placeholder="Empresa, folio, representante o correo" /></label>
+            <button className="secondary" onClick={() => exportCsv(reportType === "priority" ? "atencion-prioritaria.csv" : "reporte-empresas.csv", exportRows)}><Download size={17} /> Exportar CSV</button>
+          </div>
+          <ReportCompaniesTable rows={visibleRows} />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ReportCompaniesTable({ rows }: { rows: Array<{ company: CompanyProfile; folio: string; employees: number | null; size: string; level: string; percentage: number | null; observations: number }> }) {
+  return (
+    <div className="report-table-wrap">
+      <table className="report-table">
+        <thead><tr><th>Folio</th><th>Empresa</th><th>Representante</th><th>Correo</th><th>Sector</th><th>Empleados</th><th>Tamaño</th><th>Nivel</th><th>%</th><th>Observaciones</th><th>Seguimiento</th></tr></thead>
+        <tbody>{rows.map((row) => <tr key={row.company.id}><td>{row.folio}</td><td>{row.company.name}</td><td>{row.company.representative}</td><td>{row.company.email}</td><td>{row.company.sector}</td><td>{row.employees ?? "-"}</td><td>{row.size}</td><td><span className={`report-level ${getReportLevelTone(row.level)}`}>{row.level}</span></td><td>{row.percentage ?? "-"}{row.percentage !== null ? "%" : ""}</td><td>{row.observations}</td><td>{row.company.followUpStatus}</td></tr>)}</tbody>
+      </table>
+    </div>
+  );
+}
+
+function getReportLevelTone(level: string) {
+  if (level === "Madura") return "green";
+  if (level === "Área de oportunidad") return "yellow";
+  if (level === "Atención inmediata") return "orange";
+  if (level === "Riesgo crítico") return "red";
+  return "";
+}
+
+function exportCsv(filename: string, rows: Record<string, unknown>[]) {
+  if (!rows.length) return;
+  const headers = Object.keys(rows[0]);
+  const escape = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+  const csv = `\uFEFF${headers.map(escape).join(",")}\n${rows.map((row) => headers.map((header) => escape(row[header])).join(",")).join("\n")}`;
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportExcel(filename: string, title: string, rows: Record<string, unknown>[]) {
+  if (!rows.length) return;
+  const headers = Object.keys(rows[0]);
+  const escapeHtml = (value: unknown) => String(value ?? "Sin dato").replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#039;",
+  }[character] ?? character));
+  const headerCells = headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("");
+  const bodyRows = rows.map((row) => `<tr>${headers.map((header) => `<td>${escapeHtml(row[header])}</td>`).join("")}</tr>`).join("");
+  const html = `<!doctype html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
+<head>
+<meta charset="utf-8">
+<style>
+body{font-family:Arial,sans-serif;color:#102d4d}
+h1{color:#09284a;font-size:20pt;margin-bottom:4px}
+p{color:#5f748c;font-size:10pt}
+table{border-collapse:collapse;table-layout:auto}
+th{background:#09284a;color:#fff;font-weight:bold;border:1px solid #d7e1ec;padding:9px;white-space:nowrap}
+td{border:1px solid #d7e1ec;padding:8px;vertical-align:top;white-space:normal}
+tr:nth-child(even) td{background:#eef4fb}
+</style>
+</head>
+<body>
+<h1>${escapeHtml(title)}</h1>
+<p>COPARMEX Nuevo Laredo · Índice de Competitividad Empresarial · ${escapeHtml(new Date().toLocaleDateString("es-MX"))}</p>
+<table><thead><tr>${headerCells}</tr></thead><tbody>${bodyRows}</tbody></table>
+</body></html>`;
+  const url = URL.createObjectURL(new Blob(["\uFEFF", html], { type: "application/vnd.ms-excel;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function ConfigPanel() {
-  const configSections = [
-    ["Roles y permisos", "Empresa, administrador COPARMEX, revisor / asesor y superadmin.", <LockKeyhole size={20} />],
-    ["Parámetros del índice", "Pesos, criterios de puntuación y reglas de clasificación.", <BarChart3 size={20} />],
-    ["Catálogo de módulos", "Constitución, gobierno corporativo, libros, representación y continuidad.", <ClipboardList size={20} />],
-    ["Niveles de madurez", "Rangos, semáforo corporativo y mensajes institucionales.", <ShieldCheck size={20} />],
-    ["Aviso de privacidad y consentimiento", "Uso de información, confidencialidad y datos agregados.", <FileText size={20} />],
-    ["Seguridad y bitácora", "Control de accesos, eventos y trazabilidad administrativa.", <CheckCircle2 size={20} />],
-  ];
+  const [presidentLetter, setPresidentLetter] = useState<PresidentLetter>(() => getPresidentLetter());
+  const [letterMessage, setLetterMessage] = useState("");
+  const updateLetter = (key: keyof PresidentLetter, value: string) => {
+    setPresidentLetter((current) => ({ ...current, [key]: value }));
+    setLetterMessage("");
+  };
+  const saveLetter = () => {
+    window.localStorage.setItem(presidentLetterStorageKey, JSON.stringify(presidentLetter));
+    setLetterMessage("La Carta de bienvenida COPARMEX fue actualizada correctamente.");
+  };
   return (
     <div className="card">
       <h3>Configuración institucional</h3>
-      <div className="config-grid">
-        {configSections.map(([title, description, icon]) => (
-          <div className="config-item" key={String(title)}>
-            {icon}
-            <strong>{title}</strong>
-            <span>{description}</span>
+      <p className="muted">Esta vista muestra únicamente opciones configuradas y disponibles para uso administrativo.</p>
+      <section className="president-letter-editor">
+        <div className="section-title-row">
+          <div>
+            <h3>Carta de bienvenida COPARMEX</h3>
+            <p>Edita el mensaje institucional que las empresas pueden consultar desde la bienvenida pública.</p>
           </div>
-        ))}
-      </div>
-      <h3 className="subsection-heading">Roles activos</h3>
-      <div className="role-grid">{roles.map((role) => <div className="role" key={role.role}><LockKeyhole size={20} /><strong>{role.role}</strong><span>{role.description}</span></div>)}</div>
-      <div className="notice"><ShieldCheck size={18} /> Se contempla aviso de privacidad, consentimiento para uso de datos, confidencialidad empresarial y estadística agregada.</div>
+          <button className="secondary" type="button" onClick={openPresidentLetter}><ExternalLink size={17} /> Vista previa</button>
+        </div>
+        <div className="form-grid">
+          <Field label="Título de la carta" value={presidentLetter.title} onChange={(value) => updateLetter("title", value)} transform="none" />
+          <Field label="Nombre o firma" value={presidentLetter.presidentName} onChange={(value) => updateLetter("presidentName", value)} transform="none" />
+          <Field label="Cargo institucional" value={presidentLetter.presidentRole} onChange={(value) => updateLetter("presidentRole", value)} transform="none" />
+          <label className="field president-letter-body">
+            <span>Contenido de la carta</span>
+            <textarea value={presidentLetter.body} onChange={(event) => updateLetter("body", event.target.value)} />
+          </label>
+        </div>
+        {letterMessage && <div className="save-status success">{letterMessage}</div>}
+        <button className="primary" type="button" onClick={saveLetter}>Guardar carta</button>
+      </section>
     </div>
   );
 }

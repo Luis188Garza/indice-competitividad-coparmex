@@ -3,48 +3,40 @@ import { TrafficLight } from "../types";
 export const diagnosticICE = {
   id: "ice-coparmex-nld",
   title: "Índice de Competitividad Empresarial",
-  subtitle: "Diagnóstico de Madurez Corporativa Empresarial",
+  subtitle: "Autodiagnóstico de madurez empresarial",
   totalPoints: 100,
   levels: [
     {
       level: 4,
-      title: "Empresa institucionalizada",
+      title: "Madura",
       min: 85,
       max: 100,
       trafficLight: "verde" as TrafficLight,
-      interpretation: "La empresa presenta una estructura corporativa sólida, documentada y apta para procesos de crecimiento, financiamiento o inversión.",
+      interpretation: "La empresa presenta una estructura sólida, documentada y apta para procesos de crecimiento, financiamiento o inversión.",
     },
     {
       level: 3,
-      title: "Cumplimiento sólido",
+      title: "Área de oportunidad",
       min: 70,
       max: 84,
-      trafficLight: "verde-claro" as TrafficLight,
-      interpretation: "La empresa cuenta con bases corporativas funcionales y requiere ajustes puntuales para fortalecer su institucionalización.",
+      trafficLight: "amarillo" as TrafficLight,
+      interpretation: "La empresa cuenta con avances relevantes, pero todavía existen aspectos que deben fortalecerse.",
     },
     {
       level: 2,
-      title: "Cumplimiento parcial",
+      title: "Atención inmediata",
       min: 50,
       max: 69,
-      trafficLight: "amarillo" as TrafficLight,
-      interpretation: "La empresa presenta una estructura corporativa funcional, pero existen áreas de riesgo relacionadas con documentación, gobierno societario o continuidad.",
+      trafficLight: "naranja" as TrafficLight,
+      interpretation: "Existen secciones importantes que requieren atención prioritaria para reducir riesgos.",
     },
     {
       level: 1,
-      title: "Riesgo corporativo",
-      min: 30,
-      max: 49,
-      trafficLight: "naranja" as TrafficLight,
-      interpretation: "La empresa requiere atención prioritaria para reducir riesgos jurídicos, operativos y de seguimiento institucional.",
-    },
-    {
-      level: 0,
-      title: "Alto riesgo jurídico",
+      title: "Riesgo crítico",
       min: 0,
-      max: 29,
+      max: 49,
       trafficLight: "rojo" as TrafficLight,
-      interpretation: "La empresa presenta vulnerabilidades jurídicas relevantes que podrían afectar su acceso a financiamiento o generar riesgos entre socios.",
+      interpretation: "La empresa presenta brechas relevantes de cumplimiento, organización documental o control.",
     },
   ],
   modules: [
@@ -57,6 +49,8 @@ export const diagnosticICE = {
         {
           id: "CE01",
           text: "¿La empresa cuenta con acta constitutiva protocolizada ante notario?",
+          helpShort: "El acta constitutiva es el instrumento legal mediante el cual se crea formalmente una empresa.",
+          helpLong: "Contiene la razón social, objeto, domicilio, capital, socios o accionistas, administración y reglas esenciales de la empresa.",
           order: 1,
           options: [
             { label: "Sí", points: 5 },
@@ -66,11 +60,12 @@ export const diagnosticICE = {
         {
           id: "CE02",
           text: "¿Los estatutos han sido actualizados en los últimos 10 años?",
+          helpShort: "Los estatutos sociales son las reglas internas que determinan cómo se organiza y opera la sociedad.",
           order: 2,
           options: [
             { label: "Sí", points: 4 },
-            { label: "No", points: 1 },
-            { label: "Desconoce", points: 0 },
+            { label: "Parcial", points: 1 },
+            { label: "No", points: 0 },
           ],
         },
         {
@@ -113,7 +108,8 @@ export const diagnosticICE = {
         },
         {
           id: "GC02",
-          text: "¿Existe designación formal vigente de administrador o consejo?",
+          text: "¿Existe designación formal vigente de administrador o consejo de administración?",
+          helpShort: "Son las personas u órganos formalmente responsables de dirigir y representar la empresa.",
           order: 2,
           options: [
             { label: "Sí", points: 5 },
@@ -125,8 +121,8 @@ export const diagnosticICE = {
           text: "¿Las decisiones relevantes de la empresa se documentan en actas?",
           order: 3,
           options: [
-            { label: "Siempre", points: 5 },
-            { label: "A veces", points: 2 },
+            { label: "Sí", points: 5 },
+            { label: "Parcial", points: 2 },
             { label: "No", points: 0 },
           ],
         },
@@ -151,6 +147,7 @@ export const diagnosticICE = {
         {
           id: "LC01",
           text: "¿La empresa cuenta con libro de actas?",
+          helpShort: "El libro de actas conserva evidencia ordenada de las decisiones tomadas por socios o accionistas.",
           order: 1,
           options: [
             { label: "Sí", points: 5 },
@@ -160,6 +157,7 @@ export const diagnosticICE = {
         {
           id: "LC02",
           text: "¿Cuenta con libro de registro de socios o accionistas?",
+          helpShort: "Permite acreditar quiénes integran la sociedad y cuál es su participación.",
           order: 2,
           options: [
             { label: "Sí", points: 5 },
@@ -186,7 +184,8 @@ export const diagnosticICE = {
       questions: [
         {
           id: "RL01",
-          text: "¿Los representantes legales cuentan con poderes notariales vigentes?",
+          text: "¿La empresa cuenta con poderes vigentes?",
+          helpShort: "Los poderes vigentes acreditan las facultades de quienes actúan en nombre de la empresa.",
           order: 1,
           options: [
             { label: "Sí", points: 6 },
@@ -222,7 +221,7 @@ export const diagnosticICE = {
       questions: [
         {
           id: "DC01",
-          text: "¿La empresa utiliza contratos escritos con clientes?",
+          text: "¿La empresa cuenta con contratos por escrito?",
           order: 1,
           options: [
             { label: "Sí", points: 5 },
@@ -232,7 +231,7 @@ export const diagnosticICE = {
         },
         {
           id: "DC02",
-          text: "¿Existen contratos formales con proveedores relevantes?",
+          text: "¿La empresa utiliza mecanismos confiables para la firma, conservación o trazabilidad de sus contratos, como firma electrónica, plataformas digitales o tecnologías de registro seguro?",
           order: 2,
           options: [
             { label: "Sí", points: 5 },
@@ -260,17 +259,18 @@ export const diagnosticICE = {
       questions: [
         {
           id: "CR01",
-          text: "¿La empresa tiene identificado a su beneficiario controlador?",
+          text: "De conformidad con el marco normativo aplicable, ¿la empresa cuenta con la documentación y controles necesarios para acreditar el cumplimiento de sus obligaciones?",
+          helpShort: "Comprende la documentación y controles que permiten acreditar las obligaciones aplicables.",
           order: 1,
           options: [
             { label: "Sí", points: 5 },
+            { label: "Parcial", points: 2 },
             { label: "No", points: 0 },
-            { label: "Desconoce", points: 0 },
           ],
         },
         {
           id: "CR02",
-          text: "¿Cuenta con documentación corporativa disponible para autoridades o bancos?",
+          text: "¿La empresa identifica claramente qué información, documentos o controles puede requerir la autoridad en caso de revisión, inspección o requerimiento formal?",
           order: 2,
           options: [
             { label: "Sí", points: 5 },
@@ -282,13 +282,14 @@ export const diagnosticICE = {
     },
     {
       id: "continuidad",
-      title: "Continuidad empresarial",
+      title: "Continuidad y legado empresarial",
       maxPoints: 10,
       order: 7,
       questions: [
         {
           id: "CO01",
-          text: "¿La empresa tiene reglas de sucesión o continuidad empresarial?",
+          text: "¿La empresa cuenta con estrategias de gobierno corporativo, creación de comités, acuerdos entre accionistas o mecanismos formales para la toma de decisiones?",
+          helpShort: "Evalúa las reglas y mecanismos que ayudan a sostener la empresa y su toma de decisiones en el tiempo.",
           order: 1,
           options: [
             { label: "Sí", points: 5 },
@@ -298,7 +299,7 @@ export const diagnosticICE = {
         },
         {
           id: "CO02",
-          text: "¿Existe claridad sobre la transmisión de acciones o partes sociales?",
+          text: "¿La empresa tiene claramente definido el tipo de acciones o participaciones, sus diferencias, derechos y la forma en que pueden transmitirse?",
           order: 2,
           options: [
             { label: "Sí", points: 5 },

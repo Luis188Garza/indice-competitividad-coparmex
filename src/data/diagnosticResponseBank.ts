@@ -18,7 +18,7 @@ export const diagnosticResponseBank: DiagnosticResponseBankItem[] = [
     summary: "Evalúa si la empresa cuenta con una base societaria vigente, coherente con su operación y útil para decisiones corporativas relevantes.",
     findings: [
       "La empresa requiere confirmar que su acta constitutiva, estatutos sociales, objeto social, capital social y estructura accionaria reflejan su realidad actual.",
-      "La documentación constitutiva puede no estar alineada con las actividades, socios o estructura patrimonial vigentes.",
+      "La documentación constitutiva no acredita plenamente las actividades, socios o estructura patrimonial vigentes y requiere revisión.",
     ],
     businessImplications: [
       "Una estructura societaria desactualizada puede retrasar trámites bancarios, operaciones con terceros, inversión, venta de participación o incorporación de nuevos socios.",
@@ -33,6 +33,7 @@ export const diagnosticResponseBank: DiagnosticResponseBankItem[] = [
       "Actualizar estatutos cuando existan cambios relevantes en actividades, socios, administración, reglas internas o estructura de capital.",
     ],
     legalFramework: [
+      "Mejores prácticas nacionales e internacionales en gobierno, cumplimiento y documentación empresarial.",
       "Ley General de Sociedades Mercantiles.",
       "Código de Comercio.",
       "Estatutos sociales e instrumentos notariales aplicables.",
@@ -53,8 +54,8 @@ export const diagnosticResponseBank: DiagnosticResponseBankItem[] = [
     title: "Gobierno corporativo",
     summary: "Mide la existencia de asambleas, documentación de decisiones, administración o consejo vigente y acuerdos claros entre socios.",
     findings: [
-      "La empresa puede no estar documentando de forma suficiente sus asambleas, decisiones relevantes o acuerdos entre socios.",
-      "La administración, consejo o responsables formales pueden requerir revisión para confirmar vigencia y trazabilidad.",
+      "La empresa no acredita de forma suficiente sus asambleas, decisiones relevantes o acuerdos entre socios.",
+      "La administración, consejo o responsables formales requieren revisión para confirmar vigencia y trazabilidad.",
     ],
     businessImplications: [
       "Un gobierno corporativo débil reduce transparencia, trazabilidad y confianza entre socios, bancos, inversionistas y aliados comerciales.",
@@ -69,6 +70,7 @@ export const diagnosticResponseBank: DiagnosticResponseBankItem[] = [
       "Definir reglas básicas entre socios para administración, voto, salida, sucesión, resolución de conflictos y aprobación de operaciones relevantes.",
     ],
     legalFramework: [
+      "Mejores prácticas nacionales e internacionales en gobierno, cumplimiento y documentación empresarial.",
       "Ley General de Sociedades Mercantiles.",
       "Estatutos sociales de la empresa.",
       "Acuerdos societarios o protocolos internos aplicables.",
@@ -89,8 +91,8 @@ export const diagnosticResponseBank: DiagnosticResponseBankItem[] = [
     title: "Libros corporativos",
     summary: "Revisa la existencia y actualización del libro de actas, libro de socios o accionistas y registro de movimientos societarios.",
     findings: [
-      "Los libros corporativos pueden estar incompletos, desactualizados o no reflejar movimientos societarios relevantes.",
-      "La empresa puede no contar con evidencia ordenada de actas, socios, accionistas, transmisiones o cambios corporativos.",
+      "Los libros corporativos están incompletos, desactualizados o no reflejan movimientos societarios relevantes.",
+      "La empresa no acredita evidencia ordenada de actas, socios, accionistas, transmisiones o cambios societarios.",
     ],
     businessImplications: [
       "La falta de libros actualizados dificulta acreditar propiedad, acuerdos, participación social y cambios societarios.",
@@ -105,6 +107,7 @@ export const diagnosticResponseBank: DiagnosticResponseBankItem[] = [
       "Realizar una revisión documental para identificar asientos pendientes y regularizar movimientos societarios.",
     ],
     legalFramework: [
+      "Mejores prácticas nacionales e internacionales en gobierno, cumplimiento y documentación empresarial.",
       "Ley General de Sociedades Mercantiles.",
       "Código de Comercio.",
       "Obligaciones corporativas de conservación documental.",
@@ -125,8 +128,8 @@ export const diagnosticResponseBank: DiagnosticResponseBankItem[] = [
     title: "Representación legal y poderes",
     summary: "Evalúa poderes, representantes legales, facultades vigentes y soporte documental para actuar en nombre de la empresa.",
     findings: [
-      "La representación legal puede no estar actualizada o no reflejar las facultades necesarias para la operación real.",
-      "Los poderes y el soporte documental de representación pueden requerir revisión para confirmar vigencia, alcance y suficiencia.",
+      "La representación legal no acredita plenamente las facultades necesarias para la operación real.",
+      "Los poderes y el soporte documental de representación requieren revisión para confirmar vigencia, alcance y suficiencia.",
     ],
     businessImplications: [
       "Poderes insuficientes pueden retrasar contratos, trámites bancarios, operaciones notariales, licitaciones o gestiones ante autoridades.",
@@ -141,6 +144,7 @@ export const diagnosticResponseBank: DiagnosticResponseBankItem[] = [
       "Actualizar facultades para cubrir actos de administración, pleitos y cobranzas, títulos de crédito o dominio cuando aplique.",
     ],
     legalFramework: [
+      "Mejores prácticas nacionales e internacionales en gobierno, cumplimiento y documentación empresarial.",
       "Código Civil aplicable.",
       "Ley General de Sociedades Mercantiles.",
       "Instrumentos notariales de representación.",
@@ -161,8 +165,8 @@ export const diagnosticResponseBank: DiagnosticResponseBankItem[] = [
     title: "Documentación contractual",
     summary: "Analiza contratos con clientes, proveedores, documentación laboral y cultura contractual de la empresa.",
     findings: [
-      "La documentación contractual puede no cubrir todas las relaciones relevantes con clientes, proveedores o personal.",
-      "La empresa puede operar con acuerdos verbales, formatos incompletos o contratos no actualizados.",
+      "La documentación contractual está incompleta o no acredita todas las relaciones relevantes con clientes, proveedores o personal.",
+      "La empresa opera con acuerdos verbales, formatos incompletos o contratos no actualizados.",
     ],
     businessImplications: [
       "Contratos débiles reducen capacidad de exigir cumplimiento, cobrar, delimitar responsabilidades o resolver controversias.",
@@ -177,6 +181,7 @@ export const diagnosticResponseBank: DiagnosticResponseBankItem[] = [
       "Revisar cláusulas de pago, entregables, confidencialidad, terminación, responsabilidad, jurisdicción y solución de controversias.",
     ],
     legalFramework: [
+      "Mejores prácticas nacionales e internacionales en gobierno, cumplimiento y documentación empresarial.",
       "Código de Comercio.",
       "Código Civil aplicable.",
       "Ley Federal del Trabajo.",
@@ -195,10 +200,10 @@ export const diagnosticResponseBank: DiagnosticResponseBankItem[] = [
   {
     moduleId: "cumplimiento",
     title: "Cumplimiento regulatorio",
-    summary: "Evalúa beneficiario controlador, expediente corporativo para banca o crédito, cumplimiento regulatorio y preparación para clientes internacionales o nearshoring.",
+    summary: "Evalúa documentación, controles, expediente empresarial y preparación para procesos de revisión, financiamiento, cumplimiento o crecimiento empresarial.",
     findings: [
-      "La empresa puede no tener plenamente identificada o documentada información regulatoria clave, incluyendo beneficiario controlador.",
-      "El expediente corporativo para bancos, crédito, clientes internacionales o procesos de nearshoring puede estar incompleto.",
+      "La empresa no acredita plenamente la información y los controles necesarios para demostrar el cumplimiento de sus obligaciones.",
+      "El expediente empresarial para autoridades, banca, crédito o procesos de crecimiento está incompleto.",
     ],
     businessImplications: [
       "La falta de información ordenada puede retrasar apertura de cuentas, créditos, auditorías, procesos de cumplimiento o validaciones de clientes estratégicos.",
@@ -213,6 +218,7 @@ export const diagnosticResponseBank: DiagnosticResponseBankItem[] = [
       "Identificar y documentar beneficiario controlador conforme a obligaciones aplicables y preparar evidencia documental de soporte.",
     ],
     legalFramework: [
+      "Mejores prácticas nacionales e internacionales en gobierno, cumplimiento y documentación empresarial.",
       "Código Fiscal de la Federación.",
       "Disposiciones sobre beneficiario controlador.",
       "Normativa aplicable a identificación corporativa y debida diligencia.",
@@ -230,11 +236,11 @@ export const diagnosticResponseBank: DiagnosticResponseBankItem[] = [
   },
   {
     moduleId: "continuidad",
-    title: "Continuidad empresarial",
-    summary: "Mide continuidad empresarial, sucesión, dependencia de personas clave y sostenibilidad institucional.",
+    title: "Continuidad y legado empresarial",
+    summary: "Mide continuidad y legado empresarial, sucesión, dependencia de personas clave y sostenibilidad organizacional.",
     findings: [
-      "La empresa puede no contar con reglas claras de sucesión, continuidad o transmisión de acciones o partes sociales.",
-      "La operación puede depender de personas clave sin documentación suficiente de procesos, responsables o medidas de continuidad.",
+      "La empresa no acredita reglas claras de sucesión, continuidad o transmisión de acciones o partes sociales.",
+      "La operación depende de personas clave sin documentación suficiente de procesos, responsables o medidas de continuidad.",
     ],
     businessImplications: [
       "La ausencia de reglas de continuidad puede afectar operación, propiedad y control ante salida, incapacidad, fallecimiento o cambio de socios.",
@@ -249,12 +255,13 @@ export const diagnosticResponseBank: DiagnosticResponseBankItem[] = [
       "Documentar responsables internos, procesos críticos y acuerdos que permitan sostener la operación ante contingencias.",
     ],
     legalFramework: [
+      "Mejores prácticas nacionales e internacionales en gobierno, cumplimiento y documentación empresarial.",
       "Ley General de Sociedades Mercantiles.",
       "Estatutos sociales.",
       "Disposiciones civiles y sucesorias aplicables.",
     ],
     suggestedServices: [
-      "Plan básico de continuidad empresarial.",
+      "Plan básico de continuidad y legado empresarial.",
       "Protocolo de sucesión empresarial.",
       "Revisión de reglas de transmisión societaria.",
     ],

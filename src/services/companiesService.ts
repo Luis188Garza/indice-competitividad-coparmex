@@ -19,6 +19,14 @@ export type CompanyFirestoreData = {
   secondaryContactEmail?: string;
   secondaryContactPhone?: string;
   allowedAccessEmails?: string[];
+  numeroSocio?: string;
+  nombreEmpresa?: string;
+  correo?: string;
+  numeroEmpleados?: number | null;
+  tamanoEmpresa?: string | null;
+  tamanoEmpresaFuente?: string | null;
+  consecutivoImportacion?: string;
+  source?: string;
   accountCreated?: boolean;
   status?: string;
   authUid?: string;

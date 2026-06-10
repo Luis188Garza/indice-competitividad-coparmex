@@ -1,5 +1,6 @@
 export type Role = "empresa" | "admin" | "revisor" | "superadmin";
 export type TrafficLight = "verde" | "verde-claro" | "amarillo" | "naranja" | "rojo";
+export type ComplianceLevel = "critical" | "immediate" | "opportunity" | "mature";
 export type FollowUpStatus = "Sin iniciar" | "En seguimiento" | "Asesoría solicitada" | "Cerrado";
 export type DocumentStatus = "Pendiente" | "Cargado" | "En revisión" | "Observado" | "Validado";
 
@@ -18,7 +19,6 @@ export interface CompanyProfile {
   followUpStatus: FollowUpStatus;
   interestedInAdvisory: boolean;
 }
-
 export interface AnswerOption {
   label: string;
   value: number;
@@ -69,6 +69,8 @@ export interface DiagnosticResult {
   findings: string[];
   recommendations: string[];
   completedAt: string;
+  diagnosticVersion?: string;
+  scoringVersion?: string;
 }
 
 export interface Diagnostic {

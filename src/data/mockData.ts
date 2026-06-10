@@ -112,7 +112,7 @@ export const documents: CompanyDocument[] = companies.flatMap((company) => [
 
 export const activityLog: ActivityLog[] = [
   { id: "LOG-001", companyId: "COP-001", event: "Empresa registrada", date: "2026-04-12 09:20", actor: "Empresa" },
-  { id: "LOG-002", companyId: "COP-001", event: "Diagnóstico completado", date: "2026-04-12 09:36", actor: "Empresa" },
+  { id: "LOG-002", companyId: "COP-001", event: "Autodiagnóstico completado", date: "2026-04-12 09:36", actor: "Empresa" },
   { id: "LOG-003", companyId: "COP-001", event: "Empresa solicitó asesoría", date: "2026-04-12 09:42", actor: "Empresa" },
   { id: "LOG-004", companyId: "COP-003", event: "Observación creada", date: "2026-04-21 12:10", actor: "Revisor institucional" },
   { id: "LOG-005", companyId: "COP-004", event: "Resultado generado", date: "2026-04-24 16:45", actor: "Sistema institucional" },
@@ -120,7 +120,7 @@ export const activityLog: ActivityLog[] = [
 ];
 
 export const roles = [
-  { role: "Empresa", description: "Acceso a perfil, diagnóstico, resultado, recomendaciones y expediente documental propio." },
+  { role: "Empresa", description: "Acceso a perfil, autodiagnóstico, resultado y recomendaciones puntuales." },
   { role: "Administrador COPARMEX", description: "Seguimiento institucional, estadística agregada, empresas, observaciones y reportes." },
   { role: "Revisor / asesor", description: "Revisión documental, observaciones técnicas y acompañamiento a empresas." },
   { role: "Superadmin", description: "Configuración general, roles, catálogos, seguridad y parámetros del índice." },

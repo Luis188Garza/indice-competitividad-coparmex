@@ -15,6 +15,8 @@ export type DiagnosticResponseFirestoreData = {
   semaphore: string;
   interpretation: string;
   completedAt: string;
+  diagnosticVersion?: string;
+  scoringVersion?: string;
   [key: string]: unknown;
 };
 
