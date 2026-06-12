@@ -35,6 +35,7 @@ import { activityLog, companies, diagnostics, documents, observations } from "./
 import { CompanyProfile, DiagnosticResult, SelectedDiagnosticOption } from "./types";
 import { changeCurrentUserPassword, loginWithEmail, listenAuthState, logout as firebaseLogout, registerWithEmail, sendRecoveryEmail } from "./services/authService";
 import { createCompany, getCompanyByAuthUid, getCompanyByFolio, listCompanies, updateCompany } from "./services/companiesService";
+import { findCompanyForAccess } from "./services/companyAccessService";
 import { listAccessRequests, saveAccessRequest, updateAccessRequestStatus, type AccessRequestRecord } from "./services/accessRequestsService";
 import { getResponsesByCompany, listDiagnosticResponses, saveDiagnosticResponse } from "./services/diagnosticResponsesService";
 import { createObservation, getObservationsByCompany, listObservations, type ObservationRecord } from "./services/observationsService";
@@ -1112,7 +1113,7 @@ function AccessRequestScreen({ onBack, onLogin }: { onBack: () => void; onLogin:
 
     setVerifying(true);
     try {
-      let rawCompany = await getCompanyByFolio(normalizedFolio);
+      let rawCompany = await findCompanyForAccess(normalizedFolio, email);
       if (!rawCompany && normalizedFolio === demoFolioCompany.folio) rawCompany = demoFolioCompany;
 
       if (!rawCompany || !isCompanyActiveForAccess(rawCompany as Record<string, any>)) {
@@ -2437,7 +2438,7 @@ function CompanyImportPanel({ existingCompanies, onImported }: { existingCompani
           await updateCompany(row.duplicateCompanyId, payload);
           updated += 1;
         } else {
-          await createCompany(payload);
+          await createCompany({ ...payload, id: row.numeroSocio });
           imported += 1;
         }
       } catch (importError) {
