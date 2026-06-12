@@ -1525,8 +1525,8 @@ main { min-height: calc(100vh - 74px); }
 }
 .admin-company-row {
   display: grid;
-  min-width: 1780px;
-  grid-template-columns: 80px minmax(210px, 1.4fr) minmax(145px, .9fr) minmax(125px, .8fr) minmax(180px, 1.1fr) 80px 94px minmax(140px, .9fr) 58px minmax(132px, .85fr) 92px minmax(115px, .8fr) 72px;
+  min-width: 1900px;
+  grid-template-columns: 80px minmax(210px, 1.4fr) minmax(145px, .9fr) minmax(150px, .9fr) minmax(180px, 1.1fr) 112px 128px minmax(140px, .9fr) 120px minmax(132px, .85fr) 92px minmax(115px, .8fr) 72px;
   align-items: start;
   gap: 0;
   border-bottom: 1px solid var(--line);
@@ -1549,6 +1549,8 @@ main { min-height: calc(100vh - 74px); }
   color: var(--navy);
   padding-top: 16px;
   padding-bottom: 16px;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 .company-cell {
   overflow-wrap: anywhere;

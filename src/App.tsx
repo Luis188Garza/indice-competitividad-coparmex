@@ -2294,8 +2294,8 @@ function CompaniesTable({ intent, diagnostics: adminDiagnostics, setSelectedComp
           <span>Sector</span>
           <span>Representante</span>
           <span>Correo</span>
-          <span>Empleados</span>
-          <span>Tamaño</span>
+          <span>Número de empleados</span>
+          <span>Tamaño empresarial</span>
           <span>Autodiagnóstico</span>
           <span>Nivel</span>
           <span>%</span>
@@ -2307,14 +2307,14 @@ function CompaniesTable({ intent, diagnostics: adminDiagnostics, setSelectedComp
           <div className="admin-company-row" key={company.id}>
             <span>{getCompanyFolio(company)}</span>
             <span className="company-cell">{company.name}</span>
-            <span>{company.sector}</span>
-            <span>{company.representative}</span>
+            <span>{company.sector || "Sin sector registrado"}</span>
+            <span>{company.representative || "Sin representante registrado"}</span>
             <span>{company.email || "Sin correo"}</span>
-            <span>{getCompanyEmployeeCount(company) ?? "-"}</span>
-            <span>{getCompanySize(company)}</span>
+            <span>{getCompanyEmployeeCount(company) ?? "Sin dato"}</span>
+            <span>{getCompanySize(company) === "No calculado" ? "Sin clasificación" : getCompanySize(company)}</span>
             <span><span className={`report-status ${diagnostic ? "yes" : "no"}`}>{diagnostic ? "Sí" : "No"}</span></span>
             <span>{diagnostic?.result?.maturity.title ?? "Pendiente"}</span>
-            <span>{diagnostic?.result?.percentage ?? "-"}%</span>
+            <span>{diagnostic?.result?.percentage !== undefined ? `${diagnostic.result.percentage}%` : "Sin resultado"}</span>
             <span><Badge tone={diagnostic?.result ? getComplianceLevel(diagnostic.result.percentage).color : "amarillo"}>{diagnostic?.result ? getComplianceLevel(diagnostic.result.percentage).label : "Pendiente"}</Badge></span>
             <span>{companyObservations}</span>
             <span className="table-actions">
@@ -2346,14 +2346,14 @@ function CompaniesTable({ intent, diagnostics: adminDiagnostics, setSelectedComp
             </div>
             <h3>{company.name}</h3>
             <div className="mobile-detail-grid">
-              <p><span>Sector</span><strong>{company.sector}</strong></p>
-              <p><span>Representante</span><strong>{company.representative}</strong></p>
+              <p><span>Sector</span><strong>{company.sector || "Sin sector registrado"}</strong></p>
+              <p><span>Representante</span><strong>{company.representative || "Sin representante registrado"}</strong></p>
               <p><span>Correo</span><strong>{company.email || "Sin correo"}</strong></p>
-              <p><span>Empleados</span><strong>{getCompanyEmployeeCount(company) ?? "No disponible"}</strong></p>
-              <p><span>Tamaño</span><strong>{getCompanySize(company)}</strong></p>
+              <p><span>Número de empleados</span><strong>{getCompanyEmployeeCount(company) ?? "Sin dato"}</strong></p>
+              <p><span>Tamaño empresarial</span><strong>{getCompanySize(company) === "No calculado" ? "Sin clasificación" : getCompanySize(company)}</strong></p>
               <p><span>Autodiagnóstico</span><span className={`report-status ${diagnostic ? "yes" : "no"}`}>{diagnostic ? "Sí" : "No"}</span></p>
               <p><span>Nivel</span><strong>{diagnostic?.result?.maturity.title ?? "Pendiente"}</strong></p>
-              <p><span>Porcentaje</span><strong>{diagnostic?.result?.percentage ?? "-"}%</strong></p>
+              <p><span>Porcentaje</span><strong>{diagnostic?.result?.percentage !== undefined ? `${diagnostic.result.percentage}%` : "Sin resultado"}</strong></p>
               <p><span>Semáforo de cumplimiento</span><Badge tone={diagnostic?.result ? getComplianceLevel(diagnostic.result.percentage).color : "amarillo"}>{diagnostic?.result ? getComplianceLevel(diagnostic.result.percentage).label : "Pendiente"}</Badge></p>
               <p><span>Observaciones</span><strong>{companyObservations}</strong></p>
             </div>
