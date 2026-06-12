@@ -302,7 +302,7 @@ function getFriendlyErrorMessage(error: unknown, fallback: string) {
   if (raw.includes("auth/invalid-email")) return "Captura un correo válido.";
   if (raw.includes("auth/weak-password")) return "La contraseña debe tener al menos 8 caracteres.";
   if (raw.includes("auth/invalid-credential") || raw.includes("auth/wrong-password") || raw.includes("auth/user-not-found")) return "Correo o contraseña incorrectos.";
-  const technicalMarkers = ["Firebase", "Firestore", "auth/", "UID", "collection", "document"];
+  const technicalMarkers = ["Firebase", "Firestore", "auth/", "UID", "collection", "document", "Missing or insufficient permissions", "permission-denied"];
   if (!raw || technicalMarkers.some((marker) => raw.includes(marker))) return fallback;
   return raw;
 }

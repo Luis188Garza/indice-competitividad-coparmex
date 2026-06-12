@@ -1,0 +1,122 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && (
+          request.auth.token.admin == true
+          || request.auth.token.email == "admin@coparmexnld.org.mx"
+        );
+    }
+
+    function companyExists(companyId) {
+      return exists(/databases/$(database)/documents/companies/$(companyId));
+    }
+
+    function companyData(companyId) {
+      return get(/databases/$(database)/documents/companies/$(companyId)).data;
+    }
+
+    function ownsCompany(companyId) {
+      return signedIn()
+        && companyExists(companyId)
+        && companyData(companyId).authUid == request.auth.uid;
+    }
+
+    function canClaimCompany() {
+      return signedIn()
+        && resource.data.accessStatus == "available"
+        && resource.data.allowedAccessEmails is list
+        && request.resource.data.authUid == request.auth.uid
+        && request.auth.token.email in resource.data.allowedAccessEmails;
+    }
+
+    match /companies/{companyId} {
+      // Permiso temporal para conservar la verificación pública por folio.
+      // Debe sustituirse después por una función de servidor o directorio limitado.
+      allow get: if true;
+
+      // Una empresa autenticada solo puede consultar su propio registro.
+      allow list: if isAdmin()
+        || (
+          signedIn()
+          && resource.data.authUid == request.auth.uid
+        );
+
+      allow create: if isAdmin()
+        || (
+          signedIn()
+          && request.resource.data.authUid == request.auth.uid
+          && request.resource.data.email == request.auth.token.email
+        );
+
+      allow update: if isAdmin()
+        || canClaimCompany()
+        || (
+          ownsCompany(companyId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            "email",
+            "phone",
+            "representative",
+            "primaryContactName",
+            "primaryContactEmail",
+            "primaryContactPhone",
+            "mustChangePassword",
+            "passwordChangedAt",
+            "temporaryPasswordUsed",
+            "updatedAt"
+          ])
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    match /diagnosticResponses/{responseId} {
+      allow read: if isAdmin() || ownsCompany(resource.data.companyId);
+
+      allow create: if ownsCompany(request.resource.data.companyId)
+        && request.resource.data.companyId is string
+        && request.resource.data.answers is map
+        && request.resource.data.moduleScores is list
+        && request.resource.data.totalScore is number
+        && request.resource.data.percentage is number;
+
+      allow update, delete: if isAdmin();
+    }
+
+    match /observations/{observationId} {
+      allow read: if isAdmin() || ownsCompany(resource.data.companyId);
+
+      allow create: if isAdmin()
+        || (
+          ownsCompany(request.resource.data.companyId)
+          && request.resource.data.authorRole == "company"
+          && request.resource.data.text is string
+        );
+
+      allow update, delete: if isAdmin();
+    }
+
+    match /accessRequests/{requestId} {
+      allow create: if signedIn()
+        && request.resource.data.authUid == request.auth.uid;
+
+      allow read: if isAdmin()
+        || (
+          signedIn()
+          && resource.data.authUid == request.auth.uid
+        );
+
+      allow update, delete: if isAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

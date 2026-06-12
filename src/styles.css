@@ -1236,14 +1236,14 @@ main { min-height: calc(100vh - 74px); }
   background: #f4f7fa;
 }
 .traffic-light-lamp {
-  min-height: 27px;
+  min-height: 32px;
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
+  grid-template-columns: 22px minmax(0, 1fr);
   align-items: center;
   gap: 8px;
   border: 1px solid transparent;
   border-radius: 6px;
-  padding: 4px;
+  padding: 5px 7px;
   background: transparent;
   color: var(--muted);
   font-size: 11px;
@@ -1251,22 +1251,26 @@ main { min-height: calc(100vh - 74px); }
   font-weight: 800;
 }
 .traffic-light-lamp i {
-  width: 13px;
-  height: 13px;
+  width: 17px;
+  height: 17px;
   border: 2px solid #c8d2dd;
   border-radius: 50%;
   background: #dce3ea;
   opacity: .65;
+  transition: background-color .18s ease, border-color .18s ease, box-shadow .18s ease, transform .18s ease;
 }
 .traffic-light-lamp.is-active {
-  border-color: #c4d4e6;
-  background: white;
+  color: var(--navy);
 }
-.traffic-light-lamp.is-active i { opacity: 1; }
-.traffic-light-lamp.green.is-active i { background: var(--green); border-color: var(--green); box-shadow: 0 0 8px rgba(31,122,77,.35); }
-.traffic-light-lamp.yellow.is-active i { background: #e0ad20; border-color: #e0ad20; box-shadow: 0 0 8px rgba(224,173,32,.35); }
-.traffic-light-lamp.orange.is-active i { background: var(--orange); border-color: var(--orange); box-shadow: 0 0 8px rgba(197,83,27,.35); }
-.traffic-light-lamp.red.is-active i { background: var(--red); border-color: var(--red); box-shadow: 0 0 8px rgba(185,28,28,.35); }
+.traffic-light-lamp.is-active i { opacity: 1; transform: scale(1.06); }
+.traffic-light-lamp.green.is-active { border-color: rgba(31,122,77,.28); background: rgba(31,122,77,.11); }
+.traffic-light-lamp.yellow.is-active { border-color: rgba(224,173,32,.34); background: rgba(224,173,32,.13); }
+.traffic-light-lamp.orange.is-active { border-color: rgba(197,83,27,.3); background: rgba(197,83,27,.11); }
+.traffic-light-lamp.red.is-active { border-color: rgba(185,28,28,.28); background: rgba(185,28,28,.1); }
+.traffic-light-lamp.green.is-active i { background: var(--green); border-color: var(--green); box-shadow: 0 0 0 3px rgba(31,122,77,.12), 0 0 9px rgba(31,122,77,.32); }
+.traffic-light-lamp.yellow.is-active i { background: #e0ad20; border-color: #e0ad20; box-shadow: 0 0 0 3px rgba(224,173,32,.14), 0 0 9px rgba(224,173,32,.32); }
+.traffic-light-lamp.orange.is-active i { background: var(--orange); border-color: var(--orange); box-shadow: 0 0 0 3px rgba(197,83,27,.12), 0 0 9px rgba(197,83,27,.32); }
+.traffic-light-lamp.red.is-active i { background: var(--red); border-color: var(--red); box-shadow: 0 0 0 3px rgba(185,28,28,.11), 0 0 9px rgba(185,28,28,.3); }
 .traffic-light-help {
   display: grid;
   align-content: start;
