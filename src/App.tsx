@@ -55,6 +55,7 @@ type PresidentLetter = { title: string; presidentName: string; presidentRole: st
 
 const diagnosticModules = diagnosticICE.modules.slice().sort((a, b) => a.order - b.order);
 const diagnosticQuestions = diagnosticModules.flatMap((module) => module.questions.slice().sort((a, b) => a.order - b.order));
+const adminAccessEmail = "admin@coparmexnld.org.mx";
 const presidentLetterStorageKey = "icePresidentLetter-v2";
 const defaultPresidentLetter: PresidentLetter = {
   title: "Bienvenido al Índice de Competitividad Empresarial (ICE)",
@@ -382,21 +383,13 @@ function App() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [selectedCompanyId, setSelectedCompanyId] = useState(companies[0].id);
   const [selectedAdminCompany, setSelectedAdminCompany] = useState<AdminCompany | null>(null);
-  const [session, setSession] = useState<Session>(() => {
-    if (typeof window === "undefined") return { isAuthenticated: false, role: null };
-    const savedAdmin = window.localStorage.getItem("ice-admin-session");
-    return savedAdmin ? JSON.parse(savedAdmin) as Session : { isAuthenticated: false, role: null };
-  });
+  const [session, setSession] = useState<Session>({ isAuthenticated: false, role: null });
   const [authenticatedCompany, setAuthenticatedCompany] = useState<AdminCompany | null>(() => {
     if (typeof window === "undefined") return null;
     const saved = window.localStorage.getItem("ice-current-company");
     return saved ? JSON.parse(saved) as AdminCompany : null;
   });
-  const [authReady, setAuthReady] = useState(() => {
-    if (typeof window === "undefined") return true;
-    const hasAdminSession = Boolean(window.localStorage.getItem("ice-admin-session"));
-    return hasAdminSession;
-  });
+  const [authReady, setAuthReady] = useState(false);
   const [profile, setProfile] = useState<CompanyProfile>(initialCompany);
   const [currentModule, setCurrentModule] = useState(0);
   const [answers, setAnswers] = useState<AnswerState>({});
@@ -513,13 +506,26 @@ function App() {
   useEffect(() => {
     const unsubscribe = listenAuthState(async (user) => {
       if (!user) {
+        setSession({ isAuthenticated: false, role: null });
         setAuthenticatedCompany(null);
         window.localStorage.removeItem("ice-current-company");
+        window.localStorage.removeItem("ice-admin-session");
         setAuthReady(true);
         return;
       }
 
       try {
+        if (normalizeEmail(user.email) === adminAccessEmail) {
+          const adminSession: Session = { isAuthenticated: true, role: "admin", adminName: "Administrador COPARMEX" };
+          setAuthenticatedCompany(null);
+          setSession(adminSession);
+          window.localStorage.removeItem("ice-current-company");
+          window.localStorage.setItem("ice-admin-session", JSON.stringify(adminSession));
+          setView((current) => ["landing", "login", "loginAdmin"].includes(current) ? "admin" : current);
+          setAuthReady(true);
+          return;
+        }
+
         const companyData = await getCompanyByAuthUid(user.uid);
         if (!companyData) {
           setAuthReady(true);
@@ -680,9 +686,7 @@ function App() {
   };
 
   const logout = () => {
-    if (session.role === "empresa") {
-      void firebaseLogout();
-    }
+    void firebaseLogout();
     skipNextAnswerSave.current = true;
     setSession({ isAuthenticated: false, role: null });
     setAuthenticatedCompany(null);
@@ -735,15 +739,23 @@ function App() {
     setView("company");
   };
 
-  const loginAdmin = (user: string, password: string) => {
-    if (user.trim().toLowerCase() === "admin@coparmexnld.org.mx" && password === "admin123") {
-      setSession({ isAuthenticated: true, role: "admin", adminName: "Administrador COPARMEX" });
-      window.localStorage.setItem("ice-admin-session", JSON.stringify({ isAuthenticated: true, role: "admin", adminName: "Administrador COPARMEX" }));
-      setAdminTab("panel");
-      setView("admin");
-      return true;
+  const loginAdmin = async (user: string, password: string) => {
+    const email = normalizeEmail(user);
+    if (email !== adminAccessEmail) {
+      throw new Error("Esta cuenta no tiene acceso al panel administrativo.");
     }
-    return false;
+
+    const credential = await loginWithEmail(email, password);
+    if (normalizeEmail(credential.user.email) !== adminAccessEmail) {
+      await firebaseLogout();
+      throw new Error("Esta cuenta no tiene acceso al panel administrativo.");
+    }
+
+    const adminSession: Session = { isAuthenticated: true, role: "admin", adminName: "Administrador COPARMEX" };
+    setSession(adminSession);
+    window.localStorage.setItem("ice-admin-session", JSON.stringify(adminSession));
+    setAdminTab("panel");
+    setView("admin");
   };
 
   return (
@@ -1470,10 +1482,23 @@ function CompanyLogin({ onLogin }: { onLogin: (email: string, password: string) 
   );
 }
 
-function AdminLogin({ onLogin }: { onLogin: (user: string, password: string) => boolean }) {
-  const [user, setUser] = useState("admin@coparmexnld.org.mx");
-  const [password, setPassword] = useState("admin123");
+function AdminLogin({ onLogin }: { onLogin: (user: string, password: string) => Promise<void> }) {
+  const [user, setUser] = useState(adminAccessEmail);
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const submit = async () => {
+    setError("");
+    setLoading(true);
+    try {
+      await onLogin(user, password);
+    } catch (reason) {
+      console.error("Admin login failed", reason);
+      setError(getFriendlyErrorMessage(reason, "Usuario o contraseña incorrectos."));
+    } finally {
+      setLoading(false);
+    }
+  };
   return (
     <section className="page narrow">
       <SectionTitle title="Acceso administrador" subtitle="Acceso exclusivo para personal autorizado de COPARMEX Nuevo Laredo." />
@@ -1481,7 +1506,7 @@ function AdminLogin({ onLogin }: { onLogin: (user: string, password: string) => 
         <Field label="Usuario o correo" value={user} onChange={setUser} transform="none" />
         <PasswordField label="Contraseña" value={password} onChange={setPassword} />
         {error && <p className="form-error">{error}</p>}
-        <button className="primary" onClick={() => onLogin(user, password) || setError("Usuario o contraseña incorrectos.")}>Ingresar al panel administrativo</button>
+        <button className="primary" onClick={submit} disabled={loading || !user || !password}>{loading ? "Validando acceso..." : "Ingresar al panel administrativo"}</button>
       </div>
     </section>
   );
