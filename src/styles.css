@@ -281,6 +281,7 @@ main { min-height: calc(100vh - 74px); }
   margin: 0;
   color: #334e68;
   line-height: 1.75;
+  white-space: pre-line;
 }
 .welcome-letter-sheet footer {
   display: grid;

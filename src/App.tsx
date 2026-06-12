@@ -54,12 +54,43 @@ type PresidentLetter = { title: string; presidentName: string; presidentRole: st
 
 const diagnosticModules = diagnosticICE.modules.slice().sort((a, b) => a.order - b.order);
 const diagnosticQuestions = diagnosticModules.flatMap((module) => module.questions.slice().sort((a, b) => a.order - b.order));
-const presidentLetterStorageKey = "icePresidentLetter";
+const presidentLetterStorageKey = "icePresidentLetter-v2";
 const defaultPresidentLetter: PresidentLetter = {
-  title: "Carta de bienvenida COPARMEX",
-  presidentName: "Presidencia COPARMEX Nuevo Laredo",
-  presidentRole: "COPARMEX Nuevo Laredo",
-  body: "En COPARMEX Nuevo Laredo creemos que una empresa más organizada, institucional y preparada fortalece su capacidad para crecer, generar empleo y contribuir al desarrollo de nuestra comunidad.\n\nEl Índice de Competitividad Empresarial busca acompañar a las empresas afiliadas en la identificación de fortalezas y áreas de oportunidad, brindando una lectura clara que facilite decisiones y acciones de mejora.\n\nTe invitamos a responder este autodiagnóstico con apertura y visión de futuro.",
+  title: "Bienvenido al Índice de Competitividad Empresarial (ICE)",
+  presidentName: "Dra. Mónica Lamar González García",
+  presidentRole: "Presidenta de COPARMEX Nuevo Laredo",
+  body: `Estimado empresario:
+
+Gracias por participar en esta iniciativa de COPARMEX Nuevo Laredo.
+
+Las empresas competitivas además de distinguirse por sus productos, servicios o resultados financieros. También se distinguen por su capacidad para generar confianza, cumplir con sus obligaciones, adaptarse al cambio y construir instituciones internas que les permitan crecer de manera sostenible.
+
+Hoy más que nunca, el acceso al financiamiento, la contratación con grandes empresas, la integración a cadenas globales de suministro y el cumplimiento de nuevas exigencias regulatorias dependen cada vez más de la solidez institucional de nuestras organizaciones.
+
+Desde Nuevo Laredo, la principal plataforma logística y de comercio internacional en América del Norte, impulsamos este esfuerzo con el propósito de fortalecer la competitividad de nuestras empresas y prepararlas para aprovechar las oportunidades que ofrece la integración económica regional, el comercio internacional y el fenómeno de relocalización de inversiones.
+
+Con ese propósito, COPARMEX Nuevo Laredo ha desarrollado el Índice de Competitividad Empresarial (ICE), una herramienta que forma parte de nuestro Programa de Competitividad Empresarial.
+
+Durante esta primera etapa evaluaremos aspectos relacionados con:
+• Constitución y estatutos sociales.
+• Gobierno corporativo.
+• Libros corporativos.
+• Representación legal y facultades.
+• Documentación contractual.
+• Cumplimiento corporativo básico.
+• Continuidad empresarial.
+
+El cuestionario tiene una duración aproximada de 7 a 12 minutos y al finalizar recibirás un diagnóstico preliminar acompañado de recomendaciones orientadas a fortalecer la competitividad de tu empresa.
+
+Si deseas profundizar en los resultados, podrás solicitar una Evaluación Especializada enviando la documentación correspondiente a través del apartado señalado dentro de la plataforma para su revisión por especialistas participantes en el programa.
+
+Este diagnóstico representa el primer paso de una ruta de fortalecimiento empresarial que busca ayudar a las empresas a construir estructuras más sólidas, competitivas y sostenibles.
+
+Nuestro objetivo no es evaluar empresas para señalar deficiencias. Nuestro objetivo es ayudar a construir empresas más sólidas, más competitivas y mejor preparadas para las oportunidades que representan el crecimiento económico, el comercio internacional y el desarrollo de nuestra región.
+
+Porque la competitividad requiere de institucionalidad.
+
+Gracias por confiar en COPARMEX.`,
 };
 const getPresidentLetter = (): PresidentLetter => {
   if (typeof window === "undefined") return defaultPresidentLetter;
