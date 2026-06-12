@@ -823,6 +823,7 @@ function App() {
             setTab={setCompanyTab}
             company={activeCompany}
             result={activeResult}
+            hasRegisteredDiagnostic={Boolean(latestCompanyResult)}
             loadingResult={latestResultLoading}
             resultError={latestResultError}
             onStart={startDiagnostic}
@@ -1593,14 +1594,14 @@ function ResultScreen({ company, result, saveState, onPdf, onPortal, onRecommend
   );
 }
 
-function CompanyPortal({ tab, setTab, company, result, loadingResult, resultError, onStart, onPdf }: { tab: CompanyTab; setTab: (tab: CompanyTab) => void; company: CompanyProfile; result: DiagnosticResult | null; loadingResult: boolean; resultError: string; onStart: () => void; onPdf: () => void }) {
+function CompanyPortal({ tab, setTab, company, result, hasRegisteredDiagnostic, loadingResult, resultError, onStart, onPdf }: { tab: CompanyTab; setTab: (tab: CompanyTab) => void; company: CompanyProfile; result: DiagnosticResult | null; hasRegisteredDiagnostic: boolean; loadingResult: boolean; resultError: string; onStart: () => void; onPdf: () => void }) {
   const tabs: CompanyTab[] = ["dashboard", "autodiagnostico", "resultado", "recomendaciones", "observaciones", "perfil"];
   return (
     <section className="portal">
       <Sidebar title="Portal empresa" items={tabs} active={tab} onSelect={setTab} />
       <div className="portal-content">
         {tab === "dashboard" && <CompanyDashboard company={company} result={result} loadingResult={loadingResult} resultError={resultError} onStart={onStart} onResults={() => setTab("resultado")} />}
-        {tab === "autodiagnostico" && <PrepPanel onStart={onStart} hasResult={Boolean(result)} />}
+        {tab === "autodiagnostico" && <PrepPanel onStart={onStart} hasResult={hasRegisteredDiagnostic} />}
         {tab === "resultado" && (result ? <ResultScreen company={company} result={result} saveState={{ loading: false, error: "", success: "" }} onPdf={onPdf} onPortal={() => setTab("dashboard")} onRecommendations={() => setTab("recomendaciones")} /> : <EmptyDiagnosticState company={company} onStart={onStart} loading={loadingResult} error={resultError} />)}
         {tab === "recomendaciones" && (result ? (
           <>
