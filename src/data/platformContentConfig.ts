@@ -125,7 +125,7 @@ export const platformContentConfig: PlatformContentConfig = {
     {
       id: "CR01",
       title: "Cumplimiento regulatorio",
-      shortText: "Comprende la documentación y controles que permiten acreditar obligaciones aplicables.",
+      shortText: "Comprende la documentación y controles que permiten acreditar las obligaciones aplicables de la empresa, con especial atención al marco normativo correspondiente.",
     },
     {
       id: "CO01",

@@ -1,5 +1,7 @@
 import {
   BarChart3,
+  BookOpen,
+  BriefcaseBusiness,
   Building2,
   CheckCircle2,
   ChevronDown,
@@ -10,12 +12,17 @@ import {
   ExternalLink,
   FileSpreadsheet,
   FileText,
+  Gavel,
+  Landmark,
   LayoutDashboard,
   LockKeyhole,
   LogOut,
   Menu,
   MessageSquarePlus,
+  Mail,
+  Route,
   ShieldCheck,
+  Users,
   UserRoundCheck,
   Upload,
   X,
@@ -79,12 +86,18 @@ const answerDisplayOrder = (label: string) => {
   if (normalized === "no aplica") return 3;
   return 4;
 };
-const answerVisualTone = (label: string) => {
-  const normalized = label.trim().toLocaleLowerCase("es-MX");
-  if (normalized === "sí" || normalized.startsWith("sí,")) return "answer-positive";
-  if (normalized === "no") return "answer-negative";
-  if (normalized === "parcial" || normalized === "esporádicamente" || normalized === "a veces") return "answer-partial";
-  return "answer-neutral";
+const answerVisualTone = (_label?: string) => "answer-institutional";
+const moduleIcon = (moduleId: string) => {
+  const icons: Record<string, React.ReactNode> = {
+    constitucion: <Landmark size={18} />,
+    gobierno: <Users size={18} />,
+    libros: <BookOpen size={18} />,
+    representacion: <Gavel size={18} />,
+    contratos: <FileText size={18} />,
+    cumplimiento: <ShieldCheck size={18} />,
+    continuidad: <Route size={18} />,
+  };
+  return icons[moduleId] ?? <BriefcaseBusiness size={18} />;
 };
 const toUpperText = (value: unknown) => String(value || "").toLocaleUpperCase("es-MX");
 const normalizeEmail = (value: unknown) => String(value || "").trim().toLowerCase();
@@ -915,6 +928,7 @@ function Landing({ onPortal, onRequestAccess }: { onPortal: () => void; onReques
     dismissWelcome();
     onRequestAccess();
   };
+  const letter = getPresidentLetter();
 
   return (
     <>
@@ -941,32 +955,19 @@ function Landing({ onPortal, onRequestAccess }: { onPortal: () => void; onReques
               <X size={20} />
             </button>
             <div className="welcome-modal-scroll">
-              <div className="welcome-modal-heading">
+              <article className="welcome-letter-sheet">
                 <span className="eyebrow">COPARMEX Nuevo Laredo</span>
-                <h2 id="welcome-modal-title">Bienvenido al Índice de Competitividad Empresarial</h2>
-                <p>{platformContentConfig.generalTexts.welcomeIntro}</p>
-              </div>
-              <div className="welcome-modal-grid">
-                <article>
-                  <strong>¿Qué es?</strong>
-                  <p>Es un autodiagnóstico estructurado que permite conocer la madurez, cumplimiento y organización documental de la empresa.</p>
-                </article>
-                <article>
-                  <strong>¿Por qué competitividad?</strong>
-                  <p>{platformContentConfig.generalTexts.competitiveness}</p>
-                </article>
-                <article>
-                  <strong>Antes de responder</strong>
-                  <p>{platformContentConfig.generalTexts.preparation}</p>
-                </article>
-                <article>
-                  <strong>Al finalizar</strong>
-                  <p>{platformContentConfig.generalTexts.outcome}</p>
-                </article>
-              </div>
+                <h2 id="welcome-modal-title">{letter.title}</h2>
+                <div className="welcome-letter-body">
+                  {letter.body.split(/\n\s*\n/).filter(Boolean).map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+                </div>
+                <footer>
+                  <strong>{letter.presidentName}</strong>
+                  <span>{letter.presidentRole}</span>
+                </footer>
+              </article>
             </div>
             <div className="welcome-modal-actions">
-              <button className="secondary" onClick={openPresidentLetter}><ExternalLink size={17} /> Carta de bienvenida COPARMEX</button>
               <button className="primary" onClick={requestAccess}>Obtener acceso</button>
             </div>
           </section>
@@ -977,18 +978,30 @@ function Landing({ onPortal, onRequestAccess }: { onPortal: () => void; onReques
 }
 
 function AboutIndex({ onPortal, onRequestAccess }: { onPortal: () => void; onRequestAccess: () => void }) {
+  const sections = [
+    ["¿Qué puedes esperar de este autodiagnóstico?", platformContentConfig.generalTexts.outcome],
+    ["¿Por qué un Índice de Competitividad Empresarial?", platformContentConfig.generalTexts.competitiveness],
+    ["Objetivo del ICE", platformContentConfig.generalTexts.about],
+    ["¿Qué recibirá la empresa al concluir?", "Un semáforo de cumplimiento, resultados por secciones y recomendaciones puntuales para orientar acciones de mejora."],
+    ["¿Qué no es este diagnóstico?", "No sustituye una auditoría, dictamen legal, fiscal o especializado. Es una herramienta inicial de orientación empresarial."],
+    ["¿Qué sucede después del diagnóstico?", "La empresa podrá revisar sus recomendaciones y, si lo considera oportuno, solicitar a COPARMEX una evaluación especializada."],
+    ["¿Por qué se está haciendo esto?", "Para impulsar empresas más organizadas, preparadas y capaces de responder a oportunidades, riesgos y exigencias del entorno."],
+    ["Duración", "El autodiagnóstico toma aproximadamente de 7 a 10 minutos."],
+    ["Confidencialidad y uso de la información", "La información individual se mantiene protegida y su uso agregado permite construir indicadores institucionales sin revelar datos particulares."],
+    ["Fuentes de referencia", "Marco normativo aplicable y mejores prácticas nacionales e internacionales en gobierno, cumplimiento y documentación empresarial."],
+  ];
   return (
     <section className="page about-index">
       <div className="about-index-intro">
         <SectionTitle title="Acerca del índice" subtitle={platformContentConfig.generalTexts.about} />
       </div>
-      <div className="kpi-grid about-index-kpis">
-        <Kpi icon={<ShieldCheck />} label="Enfoque" value="Madurez empresarial" />
-        <Kpi icon={<ClipboardList />} label="Estructura" value="7 secciones" />
-        <Kpi icon={<BarChart3 />} label="Salida" value="Indicador regional" />
-      </div>
-      <div className="about-company-benefits">
-        <InsightList title="Para la empresa" items={["Autodiagnóstico de 7 a 10 minutos.", "Resultado por secciones con semáforo de cumplimiento.", "Recomendaciones puntuales y acciones sugeridas."]} />
+      <div className="about-method-grid">
+        {sections.map(([title, text]) => (
+          <article className="about-method-card" key={title}>
+            <strong>{title}</strong>
+            <p>{text}</p>
+          </article>
+        ))}
       </div>
       <div className="actions-row about-index-actions">
         <button className="primary" onClick={onRequestAccess}>Obtener acceso</button>
@@ -1445,7 +1458,7 @@ function Register({ profile, setProfile, onNext }: { profile: CompanyProfile; se
   const update = (key: keyof CompanyProfile, value: string) => setProfile({ ...profile, [key]: value });
   return (
     <section className="page narrow">
-      <SectionTitle title="Identificación de empresa" subtitle="Estos datos permiten generar el reporte, construir estadística agregada y habilitar seguimiento institucional." />
+      <SectionTitle title="Identificación de empresa" subtitle="Estos datos permiten generar el reporte y construir estadística agregada." />
       <div className="form-grid">
         <Field label="Nombre de la empresa" value={profile.name} onChange={(value) => update("name", value)} />
         <Select label="Sector económico" value={profile.sector} onChange={(value) => update("sector", value)} options={["Servicios legales", "Logística y operación", "Administración y desarrollo empresarial", "Servicios notariales", "Comercio", "Construcción", "Industria", "Servicios profesionales", "Tecnología"]} />
@@ -1497,9 +1510,8 @@ function Questionnaire(props: {
           <article className="question-card" key={question.id}>
             <div className="question-card-top">
               <span className="question-id">{question.id}</span>
-              <QuestionHelp question={question} />
             </div>
-            <h3>{question.text}</h3>
+            <div className="question-prompt"><h3>{question.text}</h3><QuestionHelp question={question} /></div>
             <div className="segmented">
               {[...question.options].sort((left, right) => answerDisplayOrder(left.label) - answerDisplayOrder(right.label)).map((option) => (
                 <button
@@ -1558,7 +1570,12 @@ function CompanyPortal({ tab, setTab, company, result, loadingResult, resultErro
         {tab === "dashboard" && <CompanyDashboard company={company} result={result} loadingResult={loadingResult} resultError={resultError} onStart={onStart} onResults={() => setTab("resultado")} />}
         {tab === "autodiagnostico" && <PrepPanel onStart={onStart} hasResult={Boolean(result)} />}
         {tab === "resultado" && (result ? <ResultScreen company={company} result={result} saveState={{ loading: false, error: "", success: "" }} onPdf={onPdf} onPortal={() => setTab("dashboard")} onRecommendations={() => setTab("recomendaciones")} /> : <EmptyDiagnosticState company={company} onStart={onStart} loading={loadingResult} error={resultError} />)}
-        {tab === "recomendaciones" && (result ? <ResponseBankInsights result={result} title="Recomendaciones puntuales ICE" description="Detalle de hallazgos, riesgos, recomendaciones puntuales y posibles líneas de apoyo según el resultado del autodiagnóstico." showInstitutionalNote /> : <EmptyDiagnosticState company={company} onStart={onStart} loading={loadingResult} error={resultError} />)}
+        {tab === "recomendaciones" && (result ? (
+          <>
+            <ResponseBankInsights result={result} title="Recomendaciones puntuales ICE" description="Detalle de hallazgos, riesgos, recomendaciones puntuales y posibles líneas de apoyo según el resultado del autodiagnóstico." showInstitutionalNote />
+            <SpecializedEvaluationAction company={company} result={result} />
+          </>
+        ) : <EmptyDiagnosticState company={company} onStart={onStart} loading={loadingResult} error={resultError} />)}
         {tab === "observaciones" && <ObservationList companyId={company.id} companyName={company.name} authorRole="company" authorName={company.name} />}
         {tab === "perfil" && <ProfileCard company={company} result={result} />}
         {tab === "documentacion" && <DocumentsPanel companyId={company.id} />}
@@ -1886,11 +1903,11 @@ function DashboardRecommendationSummary({ result }: { result: DiagnosticResult }
   const focusScores = (priorityScores.length ? priorityScores : attentionScores).slice(0, 2);
   const items = focusScores.map((score) => {
     const prefix = score.percentage < 50 ? "Atender" : "Fortalecer";
-    return `${prefix} ${score.title.toLowerCase()} (${score.percentage}%) con revisión documental y seguimiento.`;
+    return `${prefix} ${score.title.toLowerCase()} (${score.percentage}%) con revisión documental y acciones de mejora.`;
   });
 
   if (priorityScores.length > 2) {
-    items.push(`Dar seguimiento a ${priorityScores.length} secciones prioritarias en Recomendaciones puntuales.`);
+    items.push(`Atender ${priorityScores.length} secciones prioritarias desde Recomendaciones puntuales.`);
   } else if (!items.length) {
     items.push("Mantener evidencia corporativa actualizada y revisar periódicamente el índice.");
   } else {
@@ -2639,13 +2656,13 @@ function ModuleBars({ scores, compact = false }: { scores: DiagnosticResult["mod
           return (
             <div className="module-result-row" key={score.moduleId}>
               <div className="module-result-heading">
-                <strong>{score.title}</strong>
+                <strong className="module-result-title">{moduleIcon(score.moduleId)} {score.title}</strong>
                 <div className="module-result-meta">
                   <span className="percentage-chip">{score.percentage}%</span>
                   <span className={`maturity-chip ${level.color}`}>{level.label}</span>
                 </div>
               </div>
-              <div className={`bar maturity-bar ${level.color}`}><i style={{ width: `${score.percentage}%` }} /></div>
+              <div className="bar maturity-bar"><i style={{ width: `${score.percentage}%` }} /></div>
             </div>
           );
         })}
@@ -2690,8 +2707,8 @@ function ResponseBankInsights({ result, title = "Lectura ICE por secciones", des
               <strong>Secciones prioritarias</strong>
               <b>{priorityAreas.length}</b>
             </div>
-            <p>Brechas que requieren atención y seguimiento oportuno.</p>
-            {priorityAreas.length ? <ul>{priorityAreas.slice(0, 3).map(({ score }) => <li key={score.moduleId}>{score.title}</li>)}</ul> : <span>Sin secciones críticas detectadas.</span>}
+            <p>Secciones prioritarias que requieren atención por su nivel de riesgo.</p>
+            {priorityAreas.length ? <ul>{priorityAreas.slice(0, 3).map(({ score }) => <li key={score.moduleId}>{score.title}</li>)}</ul> : <span>Sin secciones prioritarias detectadas.</span>}
           </div>
         </div>
       </div>
@@ -2721,14 +2738,14 @@ function ResponseBankInsights({ result, title = "Lectura ICE por secciones", des
                   <span className={`section-status-dot ${status.color}`} aria-hidden="true" />
                   <span className="section-insight-heading">
                     <small>Sección {sectionIndex + 1}</small>
-                    <strong>{score.title}</strong>
+                    <strong className="module-result-title">{moduleIcon(score.moduleId)} {score.title}</strong>
                     <small>{score.percentage}% · {status.label}</small>
                   </span>
                 </header>
                 <div className="section-insight-accordions">
                   <SectionInsightAccordion
                     number={1}
-                    title="Diagnóstico"
+                    title="Lo que se detectó"
                     description="Qué se encontró y por qué puede afectar a la empresa."
                   >
                     <div className="section-insight-content diagnosis-layout">
@@ -2739,7 +2756,7 @@ function ResponseBankInsights({ result, title = "Lectura ICE por secciones", des
                   </SectionInsightAccordion>
                   <SectionInsightAccordion
                     number={2}
-                    title="Plan de acción"
+                    title="Lo que se recomienda"
                     description="Qué debería hacerse primero para regularizar o mantener la situación."
                   >
                     <div className="section-insight-content action-layout">
@@ -2751,7 +2768,7 @@ function ResponseBankInsights({ result, title = "Lectura ICE por secciones", des
                   </SectionInsightAccordion>
                   <SectionInsightAccordion
                     number={3}
-                    title="Sustento normativo"
+                    title="Sustento / referencia"
                     description="Marco normativo, mejores prácticas y documentos relacionados."
                   >
                     <div className="section-insight-content">
@@ -2768,6 +2785,45 @@ function ResponseBankInsights({ result, title = "Lectura ICE por secciones", des
 
       {showInstitutionalNote && <p className="institutional-note">{platformContentConfig.generalTexts.coparmexSupport}</p>}
     </div>
+  );
+}
+
+function SpecializedEvaluationAction({ company, result }: { company: CompanyProfile; result: DiagnosticResult }) {
+  const relevantSections = result.moduleScores
+    .filter((score) => score.percentage < 80)
+    .map((score) => `${score.title}: ${score.percentage}%`)
+    .join("\n") || "Sin secciones prioritarias o de atención.";
+  const level = getComplianceLevel(result.percentage).label;
+  const subject = `Solicitud de Evaluación Especializada ICE - ${company.name}`;
+  const body = `COPARMEX Nuevo Laredo:
+
+Por medio del presente, la empresa ${company.name}, folio ${getCompanyFolio(company)}, solicita iniciar el proceso de Evaluación Especializada derivado de los resultados obtenidos en el Índice de Competitividad Empresarial.
+
+Datos generales:
+Empresa: ${company.name}
+Folio: ${getCompanyFolio(company)}
+Representante: ${company.representative || "No capturado"}
+Correo: ${company.email || "No capturado"}
+Resultado ICE: ${level} - ${result.percentage}%
+
+Secciones prioritarias o de atención:
+${relevantSections}
+
+Quedamos atentos a la documentación requerida para continuar con el proceso.
+
+Atentamente,
+${company.name}`;
+  const mailto = `mailto:admin@coparmexnld.org.mx?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+
+  return (
+    <section className="card specialized-evaluation">
+      <div>
+        <span className="eyebrow">Acompañamiento institucional</span>
+        <h3>Evaluación especializada</h3>
+        <p>COPARMEX recibirá la solicitud y posteriormente indicará la documentación necesaria o la ruta de atención correspondiente.</p>
+      </div>
+      <a className="primary button-link" href={mailto}><Mail size={18} /> Solicitar evaluación especializada</a>
+    </section>
   );
 }
 
@@ -3137,7 +3193,6 @@ function ProfileCard({ company, result, hideFollowUp = false }: { company: Compa
         </div>
         <div className="profile-badges">
           <span className={`maturity-chip ${maturity?.color ?? ""}`}>{maturity?.label ?? "Sin autodiagnóstico"}</span>
-          {!hideFollowUp && <span className="profile-status-chip">{company.followUpStatus}</span>}
         </div>
       </div>
       <div className="profile-block-grid">
@@ -3155,10 +3210,9 @@ function ProfileCard({ company, result, hideFollowUp = false }: { company: Compa
           <ProfileField label="Teléfono" value={company.phone} />
         </section>
         <section className="profile-block">
-          <h4>{hideFollowUp ? "Ubicación" : "Ubicación y seguimiento"}</h4>
+          <h4>Ubicación y madurez</h4>
           <ProfileField label="Ciudad" value={company.city} />
           <ProfileField label="Estado" value={company.state} />
-          {!hideFollowUp && <ProfileField label="Seguimiento" value={company.followUpStatus} />}
           <ProfileField label="Madurez" value={maturity?.label ?? "Sin autodiagnóstico"} />
         </section>
       </div>

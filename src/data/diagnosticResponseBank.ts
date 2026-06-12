@@ -33,10 +33,10 @@ export const diagnosticResponseBank: DiagnosticResponseBankItem[] = [
       "Actualizar estatutos cuando existan cambios relevantes en actividades, socios, administración, reglas internas o estructura de capital.",
     ],
     legalFramework: [
-      "Mejores prácticas nacionales e internacionales en gobierno, cumplimiento y documentación empresarial.",
       "Ley General de Sociedades Mercantiles.",
       "Código de Comercio.",
       "Estatutos sociales e instrumentos notariales aplicables.",
+      "Mejores prácticas nacionales e internacionales en gobierno, cumplimiento y documentación empresarial.",
     ],
     suggestedServices: [
       "Revisión de acta constitutiva y estatutos sociales.",
@@ -70,10 +70,10 @@ export const diagnosticResponseBank: DiagnosticResponseBankItem[] = [
       "Definir reglas básicas entre socios para administración, voto, salida, sucesión, resolución de conflictos y aprobación de operaciones relevantes.",
     ],
     legalFramework: [
-      "Mejores prácticas nacionales e internacionales en gobierno, cumplimiento y documentación empresarial.",
       "Ley General de Sociedades Mercantiles.",
       "Estatutos sociales de la empresa.",
       "Acuerdos societarios o protocolos internos aplicables.",
+      "Mejores prácticas nacionales e internacionales en gobierno, cumplimiento y documentación empresarial.",
     ],
     suggestedServices: [
       "Diseño de gobierno corporativo básico.",
@@ -107,10 +107,10 @@ export const diagnosticResponseBank: DiagnosticResponseBankItem[] = [
       "Realizar una revisión documental para identificar asientos pendientes y regularizar movimientos societarios.",
     ],
     legalFramework: [
-      "Mejores prácticas nacionales e internacionales en gobierno, cumplimiento y documentación empresarial.",
       "Ley General de Sociedades Mercantiles.",
       "Código de Comercio.",
       "Obligaciones corporativas de conservación documental.",
+      "Mejores prácticas nacionales e internacionales en gobierno, cumplimiento y documentación empresarial.",
     ],
     suggestedServices: [
       "Apertura o actualización de libros corporativos.",
@@ -137,17 +137,17 @@ export const diagnosticResponseBank: DiagnosticResponseBankItem[] = [
     ],
     risks: [
       "Riesgo de actos firmados por personas sin facultades suficientes.",
-      "Riesgo de rechazo en trámites financieros, notariales, administrativos o comerciales.",
+      "Riesgo de rechazo en trámites bancarios, financieros, notariales, administrativos o comerciales.",
     ],
     recommendations: [
       "Revisar vigencia, alcance y suficiencia de poderes notariales y nombramientos de representantes legales.",
       "Actualizar facultades para cubrir actos de administración, pleitos y cobranzas, títulos de crédito o dominio cuando aplique.",
     ],
     legalFramework: [
-      "Mejores prácticas nacionales e internacionales en gobierno, cumplimiento y documentación empresarial.",
       "Código Civil aplicable.",
       "Ley General de Sociedades Mercantiles.",
       "Instrumentos notariales de representación.",
+      "Mejores prácticas nacionales e internacionales en gobierno, cumplimiento y documentación empresarial.",
     ],
     suggestedServices: [
       "Revisión de poderes y facultades.",
@@ -169,7 +169,7 @@ export const diagnosticResponseBank: DiagnosticResponseBankItem[] = [
       "La empresa opera con acuerdos verbales, formatos incompletos o contratos no actualizados.",
     ],
     businessImplications: [
-      "Contratos débiles reducen capacidad de exigir cumplimiento, cobrar, delimitar responsabilidades o resolver controversias.",
+      "Contratos débiles reducen la capacidad de exigir cumplimiento, cobranza, delimitar responsabilidades o resolver controversias.",
       "La falta de documentación laboral o comercial puede elevar costos y riesgos ante disputas, incumplimientos o revisiones.",
     ],
     risks: [
@@ -177,14 +177,14 @@ export const diagnosticResponseBank: DiagnosticResponseBankItem[] = [
       "Riesgo laboral, comercial o de responsabilidad por falta de documentos básicos.",
     ],
     recommendations: [
-      "Estandarizar contratos con clientes, proveedores y personal clave.",
+      "Redactar y estandarizar contratos con clientes, proveedores y personal clave.",
       "Revisar cláusulas de pago, entregables, confidencialidad, terminación, responsabilidad, jurisdicción y solución de controversias.",
     ],
     legalFramework: [
-      "Mejores prácticas nacionales e internacionales en gobierno, cumplimiento y documentación empresarial.",
       "Código de Comercio.",
       "Código Civil aplicable.",
       "Ley Federal del Trabajo.",
+      "Mejores prácticas nacionales e internacionales en gobierno, cumplimiento y documentación empresarial.",
     ],
     suggestedServices: [
       "Diseño de contratos comerciales.",
@@ -207,7 +207,7 @@ export const diagnosticResponseBank: DiagnosticResponseBankItem[] = [
     ],
     businessImplications: [
       "La falta de información ordenada puede retrasar apertura de cuentas, créditos, auditorías, procesos de cumplimiento o validaciones de clientes estratégicos.",
-      "Una baja preparación documental puede reducir competitividad frente a cadenas de suministro más exigentes.",
+      "Un deficiente soporte documental puede reducir competitividad frente a cadenas de suministro más exigentes.",
     ],
     risks: [
       "Riesgo de observaciones por beneficiario controlador o expediente corporativo incompleto.",
@@ -218,10 +218,10 @@ export const diagnosticResponseBank: DiagnosticResponseBankItem[] = [
       "Identificar y documentar beneficiario controlador conforme a obligaciones aplicables y preparar evidencia documental de soporte.",
     ],
     legalFramework: [
-      "Mejores prácticas nacionales e internacionales en gobierno, cumplimiento y documentación empresarial.",
       "Código Fiscal de la Federación.",
       "Disposiciones sobre beneficiario controlador.",
       "Normativa aplicable a identificación corporativa y debida diligencia.",
+      "Mejores prácticas nacionales e internacionales en gobierno, cumplimiento y documentación empresarial.",
     ],
     suggestedServices: [
       "Integración de expediente corporativo.",
@@ -243,7 +243,7 @@ export const diagnosticResponseBank: DiagnosticResponseBankItem[] = [
       "La operación depende de personas clave sin documentación suficiente de procesos, responsables o medidas de continuidad.",
     ],
     businessImplications: [
-      "La ausencia de reglas de continuidad puede afectar operación, propiedad y control ante salida, incapacidad, fallecimiento o cambio de socios.",
+      "La ausencia de reglas de continuidad puede afectar operación, propiedad y control ante salida, capacidad limitada, fallecimiento o cambio de socios.",
       "La dependencia de personas clave reduce sostenibilidad institucional y puede frenar crecimiento generacional.",
     ],
     risks: [
@@ -255,10 +255,10 @@ export const diagnosticResponseBank: DiagnosticResponseBankItem[] = [
       "Documentar responsables internos, procesos críticos y acuerdos que permitan sostener la operación ante contingencias.",
     ],
     legalFramework: [
-      "Mejores prácticas nacionales e internacionales en gobierno, cumplimiento y documentación empresarial.",
       "Ley General de Sociedades Mercantiles.",
       "Estatutos sociales.",
       "Disposiciones civiles y sucesorias aplicables.",
+      "Mejores prácticas nacionales e internacionales en gobierno, cumplimiento y documentación empresarial.",
     ],
     suggestedServices: [
       "Plan básico de continuidad y legado empresarial.",
