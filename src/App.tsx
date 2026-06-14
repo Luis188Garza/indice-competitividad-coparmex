@@ -3526,18 +3526,39 @@ function ReportsPanelV3({ intent, diagnostics: adminDiagnostics }: { intent: Adm
 
 function AdministrativeReportTable({ rows, priority }: { rows: AdministrativeReportRow[]; priority: boolean }) {
   return (
-    <div className="report-table-wrap">
-      <table className={`report-table ${priority ? "priority" : ""}`}>
-        <thead><tr><th>Folio</th><th>Empresa</th><th>Representante</th><th>Correo</th><th>Sector</th><th>Empleados</th><th>Tamaño</th><th>Autodiagnóstico</th><th>Nivel</th><th>%</th>{priority ? <th>Motivo de atención</th> : <th>Semáforo</th>}<th>Observaciones</th></tr></thead>
-        <tbody>{rows.map((row) => <tr key={row.company.id}>
-          <td>{row.folio || "Sin dato"}</td><td>{row.company.name || "Sin dato"}</td><td>{row.company.representative || "Sin dato"}</td><td>{row.company.email || "Sin dato"}</td><td>{row.company.sector || "Sin dato"}</td><td>{row.employees ?? "Sin dato"}</td>
-          <td><span className="report-size">{row.size === "No calculado" ? "Sin dato" : row.size}</span></td>
-          <td><span className={`report-status ${row.hasDiagnostic ? "yes" : "no"}`}>{row.hasDiagnostic ? "Sí" : "No"}</span></td>
-          <td><span className={`report-level ${getReportLevelTone(row.level)}`}>{row.level}</span></td><td>{row.percentage === null ? "Sin dato" : `${row.percentage}%`}</td>
-          <td>{priority ? row.attentionReason : <span className={`report-level ${getReportLevelTone(row.semaphore)}`}>{row.semaphore}</span>}</td><td>{row.observations}</td>
-        </tr>)}</tbody>
-      </table>
-    </div>
+    <>
+      <div className="report-table-wrap">
+        <table className={`report-table ${priority ? "priority" : ""}`}>
+          <thead><tr><th>Folio</th><th>Empresa</th><th>Representante</th><th>Correo</th><th>Sector</th><th>Empleados</th><th>Tamaño</th><th>Autodiagnóstico</th><th>Nivel</th><th>%</th>{priority ? <th>Motivo de atención</th> : <th>Semáforo</th>}<th>Observaciones</th></tr></thead>
+          <tbody>{rows.map((row) => <tr key={row.company.id}>
+            <td>{row.folio || "Sin dato"}</td><td>{row.company.name || "Sin dato"}</td><td>{row.company.representative || "Sin dato"}</td><td>{row.company.email || "Sin dato"}</td><td>{row.company.sector || "Sin dato"}</td><td>{row.employees ?? "Sin dato"}</td>
+            <td><span className="report-size">{row.size === "No calculado" ? "Sin dato" : row.size}</span></td>
+            <td><span className={`report-status ${row.hasDiagnostic ? "yes" : "no"}`}>{row.hasDiagnostic ? "Sí" : "No"}</span></td>
+            <td><span className={`report-level ${getReportLevelTone(row.level)}`}>{row.level}</span></td><td>{row.percentage === null ? "Sin dato" : `${row.percentage}%`}</td>
+            <td>{priority ? row.attentionReason : <span className={`report-level ${getReportLevelTone(row.semaphore)}`}>{row.semaphore}</span>}</td><td>{row.observations}</td>
+          </tr>)}</tbody>
+        </table>
+      </div>
+      <div className="report-mobile-card-list">
+        {rows.map((row) => (
+          <article className="report-mobile-card" key={`mobile-${row.company.id}`}>
+            <div className="report-mobile-card-head">
+              <span>Folio {row.folio || "Sin dato"}</span>
+              <span className={`report-level ${getReportLevelTone(row.level)}`}>{row.level}</span>
+            </div>
+            <h3>{row.company.name || "Sin dato"}</h3>
+            <div className="report-mobile-card-meta">
+              <p><span>Autodiagnóstico</span><b className={`report-status ${row.hasDiagnostic ? "yes" : "no"}`}>{row.hasDiagnostic ? "Sí" : "No"}</b></p>
+              <p><span>Resultado</span><strong>{row.percentage === null ? "Sin resultado" : `${row.percentage}%`}</strong></p>
+              <p><span>Tamaño</span><strong>{row.size === "No calculado" ? "Sin dato" : row.size}</strong></p>
+              <p><span>Observaciones</span><strong>{row.observations}</strong></p>
+              <p className="wide"><span>Representante</span><strong>{row.company.representative || "Sin dato"}</strong></p>
+              {priority && <p className="wide"><span>Motivo de atención</span><strong>{row.attentionReason}</strong></p>}
+            </div>
+          </article>
+        ))}
+      </div>
+    </>
   );
 }
 
