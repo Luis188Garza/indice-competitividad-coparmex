@@ -230,7 +230,7 @@ function mapCompanyRecord(item: Record<string, any>): AdminCompany {
     nombreEmpresa: item.nombreEmpresa ? String(item.nombreEmpresa) : undefined,
     correo: item.correo ? String(item.correo) : undefined,
     numeroEmpleados: typeof item.numeroEmpleados === "number" ? item.numeroEmpleados : null,
-    tamanoEmpresa: item.tamanoEmpresa ? String(item.tamanoEmpresa) : undefined,
+    tamanoEmpresa: item.tamanoEmpresa ? normalizeCompanySize(String(item.tamanoEmpresa)) : undefined,
     mustChangePassword: Boolean(item.mustChangePassword),
     source: "firestore",
   };
@@ -275,8 +275,14 @@ function getCompanyEmployeeCount(company: CompanyProfile | AdminCompany) {
   return values.length ? Math.max(...values) : null;
 }
 
+function normalizeCompanySize(value?: string | null) {
+  const size = String(value || "").trim();
+  if (/^peque.a$/i.test(size)) return "Pequeña";
+  return size;
+}
+
 function getCompanySize(company: CompanyProfile | AdminCompany) {
-  if ("tamanoEmpresa" in company && company.tamanoEmpresa) return company.tamanoEmpresa;
+  if ("tamanoEmpresa" in company && company.tamanoEmpresa) return normalizeCompanySize(company.tamanoEmpresa);
   const employees = getCompanyEmployeeCount(company);
   if (employees === null) return "No calculado";
   if (employees <= 10) return "Micro";
