@@ -1714,6 +1714,15 @@ main { min-height: calc(100vh - 74px); }
 .profile p:first-of-type { border-top: 0; padding-top: 0; }
 .profile span { color: var(--muted); }
 .profile strong { color: var(--navy); line-height: 1.35; overflow-wrap: anywhere; }
+.profile-edit-panel {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fbff;
+}
+.profile-edit-panel .muted { margin: 14px 0 0; }
+.profile-edit-actions { margin-top: 16px; }
+.compact-action { min-height: 38px; padding: 7px 12px; }
 .document-grid, .role-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .document, .role {
   display: grid;

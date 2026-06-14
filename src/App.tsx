@@ -139,6 +139,7 @@ const normalizeRfcMoral = (value: unknown) => toUpperText(value).replace(/[^A-Z0
 const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 const isValidRfcMoral = (value: string) => /^[A-ZÑ&]{3}\d{6}[A-Z0-9]{3}$/.test(value.trim().toLocaleUpperCase("es-MX"));
 const hasActiveAccount = (company: Record<string, any>) => Boolean(company.accountCreated || company.authUid || String(company.accessStatus || "").toLowerCase() === "active");
+const companySectorOptions = ["Administración y desarrollo empresarial", "Servicios legales", "Logística y operación", "Servicios notariales", "Gestión empresarial", "Comercio", "Industria", "Servicios profesionales", "Tecnología", "No especificado"];
 
 const demoFolioCompany = {
   id: "1234",
@@ -716,6 +717,13 @@ function App() {
     setView("company");
   };
 
+  const updateAuthenticatedCompanyProfile = (updates: Partial<CompanyProfile>) => {
+    if (!authenticatedCompany) return;
+    const updatedCompany = { ...authenticatedCompany, ...updates };
+    setAuthenticatedCompany(updatedCompany);
+    window.localStorage.setItem("ice-current-company", JSON.stringify(updatedCompany));
+  };
+
   const loginCompany = async (email: string, password: string) => {
     const credential = await loginWithEmail(email.trim(), password);
     const companyData = await getCompanyByAuthUid(credential.user.uid);
@@ -846,6 +854,7 @@ function App() {
             resultError={latestResultError}
             onStart={startDiagnostic}
             onPdf={simulatePdf}
+            onCompanyUpdated={updateAuthenticatedCompanyProfile}
           />
         )}
         {authReady && view === "admin" && session.role === "admin" && (
@@ -1625,7 +1634,7 @@ function ResultScreen({ company, result, saveState, onPdf, onPortal, onRecommend
   );
 }
 
-function CompanyPortal({ tab, setTab, company, result, hasRegisteredDiagnostic, loadingResult, resultError, onStart, onPdf }: { tab: CompanyTab; setTab: (tab: CompanyTab) => void; company: CompanyProfile; result: DiagnosticResult | null; hasRegisteredDiagnostic: boolean; loadingResult: boolean; resultError: string; onStart: () => void; onPdf: () => void }) {
+function CompanyPortal({ tab, setTab, company, result, hasRegisteredDiagnostic, loadingResult, resultError, onStart, onPdf, onCompanyUpdated }: { tab: CompanyTab; setTab: (tab: CompanyTab) => void; company: CompanyProfile; result: DiagnosticResult | null; hasRegisteredDiagnostic: boolean; loadingResult: boolean; resultError: string; onStart: () => void; onPdf: () => void; onCompanyUpdated: (updates: Partial<CompanyProfile>) => void }) {
   const tabs: CompanyTab[] = ["dashboard", "autodiagnostico", "resultado", "recomendaciones", "observaciones", "perfil"];
   return (
     <section className="portal">
@@ -1641,7 +1650,7 @@ function CompanyPortal({ tab, setTab, company, result, hasRegisteredDiagnostic, 
           </>
         ) : <EmptyDiagnosticState company={company} onStart={onStart} loading={loadingResult} error={resultError} />)}
         {tab === "observaciones" && <ObservationList companyId={company.id} companyName={company.name} authorRole="company" authorName={company.name} />}
-        {tab === "perfil" && <ProfileCard company={company} result={result} />}
+        {tab === "perfil" && <ProfileCard company={company} result={result} editable onUpdated={onCompanyUpdated} />}
         {tab === "documentacion" && <DocumentsPanel companyId={company.id} />}
       </div>
     </section>
@@ -3013,7 +3022,7 @@ function Field({
 }
 
 function TextArea({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string }) {
-  return <label className="field"><span>{label}</span><textarea value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value.toLocaleUpperCase("es-MX"))} /></label>;
+  return <label className="field"><span>{label}</span><textarea value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} /></label>;
 }
 
 function PasswordField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
@@ -3139,6 +3148,7 @@ function ObservationList({ companyId, companyName, authorRole, authorName }: { c
   const list = savedObservations.length ? savedObservations : localObservations;
   const submit = async () => {
     const cleanText = text.trim();
+    const normalizedText = cleanText.replace(/^([^A-Za-zÁÉÍÓÚÜÑáéíóúüñ]*)([A-Za-zÁÉÍÓÚÜÑáéíóúüñ])/, (_match, prefix: string, firstLetter: string) => `${prefix}${firstLetter.toLocaleUpperCase("es-MX")}`);
     setMessage("");
     setError("");
     if (!cleanText) {
@@ -3148,14 +3158,14 @@ function ObservationList({ companyId, companyName, authorRole, authorName }: { c
 
     setSaving(true);
     try {
-      const id = await createObservation({ companyId, companyName, author: authorName, authorRole, text: cleanText });
+      const id = await createObservation({ companyId, companyName, author: authorName, authorRole, text: normalizedText });
       setSavedObservations((current) => [{
         id,
         companyId,
         companyName,
         author: authorName,
         authorRole,
-        text: cleanText,
+        text: normalizedText,
         createdAt: new Date().toISOString(),
       }, ...current]);
       setText("");
@@ -3256,8 +3266,66 @@ function AllObservations() {
   );
 }
 
-function ProfileCard({ company, result, hideFollowUp = false }: { company: CompanyProfile; result: DiagnosticResult | null; hideFollowUp?: boolean }) {
+function ProfileCard({ company, result, hideFollowUp = false, editable = false, onUpdated }: { company: CompanyProfile; result: DiagnosticResult | null; hideFollowUp?: boolean; editable?: boolean; onUpdated?: (updates: Partial<CompanyProfile>) => void }) {
   const maturity = result ? getComplianceLevel(result.percentage) : null;
+  const [editing, setEditing] = useState(false);
+  const [rfc, setRfc] = useState(company.rfc ?? "");
+  const [sector, setSector] = useState(company.sector);
+  const [phone, setPhone] = useState(company.phone);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    if (editing) return;
+    setRfc(company.rfc ?? "");
+    setSector(company.sector);
+    setPhone(company.phone);
+  }, [company.rfc, company.sector, company.phone, editing]);
+
+  const cancelEditing = () => {
+    setRfc(company.rfc ?? "");
+    setSector(company.sector);
+    setPhone(company.phone);
+    setError("");
+    setMessage("");
+    setEditing(false);
+  };
+
+  const saveProfile = async () => {
+    const normalizedRfc = normalizeRfcMoral(rfc);
+    const normalizedPhone = normalizePhone(phone);
+    setError("");
+    setMessage("");
+
+    if (normalizedRfc && !isValidRfcMoral(normalizedRfc)) {
+      setError("El RFC debe corresponder a una persona moral y contener 12 caracteres válidos.");
+      return;
+    }
+    if (normalizedPhone && normalizedPhone.length !== 10) {
+      setError("El teléfono debe contener 10 dígitos.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await updateCompany(company.id, {
+        rfc: normalizedRfc,
+        sector,
+        phone: normalizedPhone,
+        primaryContactPhone: normalizedPhone,
+      });
+      onUpdated?.({ rfc: normalizedRfc, sector, phone: normalizedPhone });
+      setMessage("Los datos del perfil se actualizaron correctamente.");
+      setEditing(false);
+    } catch (reason) {
+      console.error("No fue posible actualizar el perfil empresarial.", reason);
+      setError(getFriendlyErrorMessage(reason, "No fue posible actualizar el perfil. Intenta nuevamente."));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="card profile profile-executive">
       <div className="profile-heading">
@@ -3267,29 +3335,48 @@ function ProfileCard({ company, result, hideFollowUp = false }: { company: Compa
         </div>
         <div className="profile-badges">
           <span className={`maturity-chip ${maturity?.color ?? ""}`}>{maturity?.label ?? "Sin autodiagnóstico"}</span>
+          {editable && !editing && <button className="secondary compact-action" onClick={() => { setEditing(true); setMessage(""); setError(""); }}>Actualizar datos</button>}
         </div>
       </div>
-      <div className="profile-block-grid">
-        <section className="profile-block">
-          <h4>Información general</h4>
-          <ProfileField label="Nombre" value={company.name} />
-          <ProfileField label="Folio" value={getCompanyFolio(company)} />
-          <ProfileField label="Sector" value={company.sector} />
-          <ProfileField label="Registro" value={formatDate(company.registeredAt)} />
-        </section>
-        <section className="profile-block">
-          <h4>Contacto</h4>
-          <ProfileField label="Representante" value={company.representative} />
-          <ProfileField label="Correo" value={company.email} />
-          <ProfileField label="Teléfono" value={company.phone} />
-        </section>
-        <section className="profile-block">
-          <h4>Ubicación y madurez</h4>
-          <ProfileField label="Ciudad" value={company.city} />
-          <ProfileField label="Estado" value={company.state} />
-          <ProfileField label="Madurez" value={maturity?.label ?? "Sin autodiagnóstico"} />
-        </section>
-      </div>
+      {error && <p className="form-error">{error}</p>}
+      {message && <p className="save-status success">{message}</p>}
+      {editable && editing ? (
+        <div className="profile-edit-panel">
+          <div className="form-grid">
+            <Field label="RFC" value={rfc} onChange={setRfc} format="rfcMoral" maxLength={12} />
+            <Select label="Sector" value={sector} onChange={setSector} options={companySectorOptions} />
+            <Field label="Teléfono" value={phone} onChange={setPhone} format="phone" maxLength={10} />
+          </div>
+          <p className="muted">Puedes actualizar únicamente estos datos operativos. Los demás datos permanecen protegidos.</p>
+          <div className="actions-row profile-edit-actions">
+            <button className="primary" onClick={saveProfile} disabled={saving}>{saving ? "Guardando..." : "Guardar cambios"}</button>
+            <button className="secondary" onClick={cancelEditing} disabled={saving}>Cancelar</button>
+          </div>
+        </div>
+      ) : (
+        <div className="profile-block-grid">
+          <section className="profile-block">
+            <h4>Información general</h4>
+            <ProfileField label="Nombre" value={company.name} />
+            <ProfileField label="Folio" value={getCompanyFolio(company)} />
+            <ProfileField label="RFC" value={company.rfc} />
+            <ProfileField label="Sector" value={company.sector} />
+            <ProfileField label="Registro" value={formatDate(company.registeredAt)} />
+          </section>
+          <section className="profile-block">
+            <h4>Contacto</h4>
+            <ProfileField label="Representante" value={company.representative} />
+            <ProfileField label="Correo" value={company.email} />
+            <ProfileField label="Teléfono" value={company.phone} />
+          </section>
+          <section className="profile-block">
+            <h4>Ubicación y madurez</h4>
+            <ProfileField label="Ciudad" value={company.city} />
+            <ProfileField label="Estado" value={company.state} />
+            <ProfileField label="Madurez" value={maturity?.label ?? "Sin autodiagnóstico"} />
+          </section>
+        </div>
+      )}
     </div>
   );
 }

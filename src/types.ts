@@ -6,6 +6,7 @@ export type DocumentStatus = "Pendiente" | "Cargado" | "En revisión" | "Observa
 
 export interface CompanyProfile {
   id: string;
+  rfc?: string;
   name: string;
   sector: string;
   city: string;
