@@ -1973,7 +1973,7 @@ main { min-height: calc(100vh - 74px); }
   .topbar { min-height: 60px; }
   main { min-height: calc(100vh - 60px); }
   .hero, .portal, .dashboard-grid, .two-columns, .result-overview, .company-dashboard-grid { grid-template-columns: 1fr; }
-  .hero { min-height: auto; }
+  .hero { min-height: calc(100svh - 60px); }
   .sidebar {
     display: none;
   }
@@ -1997,7 +1997,10 @@ main { min-height: calc(100vh - 74px); }
   .brand strong { font-size: 14px; }
   .brand small { display: none; }
   .icon-button { width: 36px; height: 36px; }
-  .hero { padding: 30px 18px; }
+  .hero {
+    min-height: calc(100svh - 56px);
+    padding: 30px 18px;
+  }
   .hero h1 { font-size: 42px; }
   .hero-info-chips {
     display: grid;
