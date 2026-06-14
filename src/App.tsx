@@ -2734,9 +2734,10 @@ function ResponseBankInsights({ result, title = "Lectura ICE por secciones", des
     score,
     bank: diagnosticResponseBank.find((item) => item.moduleId === score.moduleId),
   }));
-  const strongAreas = scoresWithBank.filter((item) => item.score.percentage >= 85);
-  const attentionAreas = scoresWithBank.filter((item) => item.score.percentage >= 50 && item.score.percentage < 85);
-  const priorityAreas = scoresWithBank.filter((item) => item.score.percentage < 50);
+  const matureAreas = scoresWithBank.filter((item) => item.score.percentage >= 85);
+  const opportunityAreas = scoresWithBank.filter((item) => item.score.percentage >= 70 && item.score.percentage < 85);
+  const immediateAttentionAreas = scoresWithBank.filter((item) => item.score.percentage >= 50 && item.score.percentage < 70);
+  const criticalRiskAreas = scoresWithBank.filter((item) => item.score.percentage < 50);
 
   return (
     <div className="response-bank">
@@ -2746,27 +2747,35 @@ function ResponseBankInsights({ result, title = "Lectura ICE por secciones", des
         <div className="area-summary-grid">
           <div className="area-summary-card strong">
             <div className="area-summary-card-head">
-              <strong>Secciones fuertes</strong>
-              <b>{strongAreas.length}</b>
+              <strong>Madura</strong>
+              <b>{matureAreas.length}</b>
             </div>
-            <p>Capacidades que muestran una base institucional favorable.</p>
-            {strongAreas.length ? <ul>{strongAreas.slice(0, 3).map(({ score }) => <li key={score.moduleId}>{score.title}</li>)}</ul> : <span>Sin secciones en rango fuerte.</span>}
+            <p>Secciones con una base institucional favorable.</p>
+            {matureAreas.length ? <ul>{matureAreas.map(({ score }) => <li key={score.moduleId}>{score.title}</li>)}</ul> : <span>Sin secciones maduras.</span>}
+          </div>
+          <div className="area-summary-card opportunity">
+            <div className="area-summary-card-head">
+              <strong>Área de oportunidad</strong>
+              <b>{opportunityAreas.length}</b>
+            </div>
+            <p>Secciones favorables que aún pueden fortalecerse.</p>
+            {opportunityAreas.length ? <ul>{opportunityAreas.map(({ score }) => <li key={score.moduleId}>{score.title}</li>)}</ul> : <span>Sin secciones en área de oportunidad.</span>}
           </div>
           <div className="area-summary-card attention">
             <div className="area-summary-card-head">
-              <strong>Secciones de atención</strong>
-              <b>{attentionAreas.length}</b>
+              <strong>Atención inmediata</strong>
+              <b>{immediateAttentionAreas.length}</b>
             </div>
-            <p>Aspectos que conviene fortalecer para prevenir brechas.</p>
-            {attentionAreas.length ? <ul>{attentionAreas.slice(0, 3).map(({ score }) => <li key={score.moduleId}>{score.title}</li>)}</ul> : <span>Sin secciones en rango de atención.</span>}
+            <p>Secciones con brechas que requieren acciones de mejora.</p>
+            {immediateAttentionAreas.length ? <ul>{immediateAttentionAreas.map(({ score }) => <li key={score.moduleId}>{score.title}</li>)}</ul> : <span>Sin secciones en atención inmediata.</span>}
           </div>
           <div className="area-summary-card priority">
             <div className="area-summary-card-head">
-              <strong>Secciones prioritarias</strong>
-              <b>{priorityAreas.length}</b>
+              <strong>Riesgo crítico</strong>
+              <b>{criticalRiskAreas.length}</b>
             </div>
-            <p>Secciones prioritarias que requieren atención por su nivel de riesgo.</p>
-            {priorityAreas.length ? <ul>{priorityAreas.slice(0, 3).map(({ score }) => <li key={score.moduleId}>{score.title}</li>)}</ul> : <span>Sin secciones prioritarias detectadas.</span>}
+            <p>Secciones prioritarias por su nivel de riesgo.</p>
+            {criticalRiskAreas.length ? <ul>{criticalRiskAreas.map(({ score }) => <li key={score.moduleId}>{score.title}</li>)}</ul> : <span>Sin secciones en riesgo crítico.</span>}
           </div>
         </div>
       </div>

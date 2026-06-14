@@ -694,7 +694,7 @@ main { min-height: calc(100vh - 74px); }
 }
 .area-summary-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   align-items: start;
   gap: 12px;
 }
@@ -713,6 +713,7 @@ main { min-height: calc(100vh - 74px); }
   background: #f8fbff;
 }
 .area-summary-card.strong { border-top: 4px solid var(--green); }
+.area-summary-card.opportunity { border-top: 4px solid #6aa879; }
 .area-summary-card.attention { border-top: 4px solid #e0ad20; }
 .area-summary-card.priority { border-top: 4px solid var(--red); }
 .area-summary-card-head {
@@ -1254,12 +1255,15 @@ main { min-height: calc(100vh - 74px); }
 .traffic-light-lamp i {
   width: 17px;
   height: 17px;
-  border: 2px solid #c8d2dd;
+  border: 2px solid currentColor;
   border-radius: 50%;
-  background: #dce3ea;
-  opacity: .65;
+  opacity: .9;
   transition: background-color .18s ease, border-color .18s ease, box-shadow .18s ease, transform .18s ease;
 }
+.traffic-light-lamp.green i { color: var(--green); background: var(--green); }
+.traffic-light-lamp.yellow i { color: #e0ad20; background: #e0ad20; }
+.traffic-light-lamp.orange i { color: var(--orange); background: var(--orange); }
+.traffic-light-lamp.red i { color: var(--red); background: var(--red); }
 .traffic-light-lamp.is-active {
   color: var(--navy);
 }
@@ -1988,6 +1992,7 @@ main { min-height: calc(100vh - 74px); }
   .report-toolbar { grid-template-columns: 1fr; }
   .report-toolbar .secondary { width: fit-content; }
   .report-summary-grid { grid-template-columns: 1fr; }
+  .area-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 640px) {
