@@ -2670,11 +2670,12 @@ function ComplianceTrafficLight({ result, compact = false }: { result: Diagnosti
       <div className="traffic-light-vertical" aria-label={`Semáforo de cumplimiento: ${activeLevel.label}`}>
         {platformContentConfig.trafficLight.map((level) => {
           const active = level.key === activeLevel.key;
+          const lampColor = level.key === "opportunity" ? "light-green" : level.color;
           return (
             <button
               type="button"
               key={level.key}
-              className={`traffic-light-lamp ${level.color} ${active ? "is-active" : "is-off"}`}
+              className={`traffic-light-lamp ${lampColor} ${active ? "is-active" : "is-off"}`}
               aria-label={level.shortText}
               aria-pressed={selectedKey === level.key}
               title={level.shortText}

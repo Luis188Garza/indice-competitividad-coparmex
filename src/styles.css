@@ -1261,6 +1261,7 @@ main { min-height: calc(100vh - 74px); }
   transition: background-color .18s ease, border-color .18s ease, box-shadow .18s ease, transform .18s ease;
 }
 .traffic-light-lamp.green i { color: var(--green); background: var(--green); }
+.traffic-light-lamp.light-green i { color: #65a978; background: #65a978; }
 .traffic-light-lamp.yellow i { color: #e0ad20; background: #e0ad20; }
 .traffic-light-lamp.orange i { color: var(--orange); background: var(--orange); }
 .traffic-light-lamp.red i { color: var(--red); background: var(--red); }
@@ -1269,10 +1270,12 @@ main { min-height: calc(100vh - 74px); }
 }
 .traffic-light-lamp.is-active i { opacity: 1; transform: scale(1.06); }
 .traffic-light-lamp.green.is-active { border-color: rgba(31,122,77,.28); background: rgba(31,122,77,.11); }
+.traffic-light-lamp.light-green.is-active { border-color: rgba(101,169,120,.34); background: rgba(101,169,120,.14); }
 .traffic-light-lamp.yellow.is-active { border-color: rgba(224,173,32,.34); background: rgba(224,173,32,.13); }
 .traffic-light-lamp.orange.is-active { border-color: rgba(197,83,27,.3); background: rgba(197,83,27,.11); }
 .traffic-light-lamp.red.is-active { border-color: rgba(185,28,28,.28); background: rgba(185,28,28,.1); }
 .traffic-light-lamp.green.is-active i { background: var(--green); border-color: var(--green); box-shadow: 0 0 0 3px rgba(31,122,77,.12), 0 0 9px rgba(31,122,77,.32); }
+.traffic-light-lamp.light-green.is-active i { background: #65a978; border-color: #65a978; box-shadow: 0 0 0 3px rgba(101,169,120,.14), 0 0 9px rgba(101,169,120,.34); }
 .traffic-light-lamp.yellow.is-active i { background: #e0ad20; border-color: #e0ad20; box-shadow: 0 0 0 3px rgba(224,173,32,.14), 0 0 9px rgba(224,173,32,.32); }
 .traffic-light-lamp.orange.is-active i { background: var(--orange); border-color: var(--orange); box-shadow: 0 0 0 3px rgba(197,83,27,.12), 0 0 9px rgba(197,83,27,.32); }
 .traffic-light-lamp.red.is-active i { background: var(--red); border-color: var(--red); box-shadow: 0 0 0 3px rgba(185,28,28,.11), 0 0 9px rgba(185,28,28,.3); }
