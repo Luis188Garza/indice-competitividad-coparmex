@@ -2027,6 +2027,10 @@ main { min-height: calc(100vh - 74px); }
     width: 100%;
     grid-template-columns: 112px minmax(0, 1fr);
   }
+  .standalone-traffic-light {
+    width: 100%;
+    max-width: none;
+  }
   .section-insight-content { grid-template-columns: 1fr; }
   .section-insight-content .wide { grid-column: auto; }
   .section-layer summary {

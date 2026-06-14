@@ -2734,8 +2734,8 @@ function ResponseBankInsights({ result, title = "Lectura ICE por secciones", des
     score,
     bank: diagnosticResponseBank.find((item) => item.moduleId === score.moduleId),
   }));
-  const strongAreas = scoresWithBank.filter((item) => item.score.percentage >= 80);
-  const attentionAreas = scoresWithBank.filter((item) => item.score.percentage >= 50 && item.score.percentage < 80);
+  const strongAreas = scoresWithBank.filter((item) => item.score.percentage >= 85);
+  const attentionAreas = scoresWithBank.filter((item) => item.score.percentage >= 50 && item.score.percentage < 85);
   const priorityAreas = scoresWithBank.filter((item) => item.score.percentage < 50);
 
   return (
