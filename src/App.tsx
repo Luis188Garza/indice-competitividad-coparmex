@@ -2936,10 +2936,13 @@ function SpecializedEvaluationAction({ company, result, emailConfig }: { company
   };
   const subject = renderEmailTemplate(emailConfig.subject, values);
   const body = renderEmailTemplate(emailConfig.body, values);
-  const params = new URLSearchParams({ subject, body });
-  if (emailConfig.cc.trim()) params.set("cc", emailConfig.cc.trim());
-  if (emailConfig.bcc.trim()) params.set("bcc", emailConfig.bcc.trim());
-  const mailto = `mailto:${emailConfig.to.trim()}?${params.toString()}`;
+  const params = [
+    `subject=${encodeURIComponent(subject)}`,
+    `body=${encodeURIComponent(body)}`,
+    ...(emailConfig.cc.trim() ? [`cc=${encodeURIComponent(emailConfig.cc.trim())}`] : []),
+    ...(emailConfig.bcc.trim() ? [`bcc=${encodeURIComponent(emailConfig.bcc.trim())}`] : []),
+  ];
+  const mailto = `mailto:${emailConfig.to.trim()}?${params.join("&")}`;
 
   return (
     <section className="card specialized-evaluation">
