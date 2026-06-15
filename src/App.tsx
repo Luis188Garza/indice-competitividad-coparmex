@@ -84,7 +84,7 @@ Durante esta primera etapa evaluaremos aspectos relacionados con:
 • Cumplimiento corporativo básico.
 • Continuidad empresarial.
 
-El cuestionario tiene una duración aproximada de 7 a 12 minutos y al finalizar recibirás un diagnóstico preliminar acompañado de recomendaciones orientadas a fortalecer la competitividad de tu empresa.
+El cuestionario tiene una duración aproximada de 12 a 15 minutos y al finalizar recibirás un diagnóstico preliminar acompañado de recomendaciones orientadas a fortalecer la competitividad de tu empresa.
 
 Si deseas profundizar en los resultados, podrás solicitar una Evaluación Especializada enviando la documentación correspondiente a través del apartado señalado dentro de la plataforma para su revisión por especialistas participantes en el programa.
 
@@ -1096,7 +1096,7 @@ function AboutIndex({ onPortal, onRequestAccess }: { onPortal: () => void; onReq
     ["¿Qué no es este diagnóstico?", "No sustituye una auditoría, dictamen legal, fiscal o especializado. Es una herramienta inicial de orientación empresarial."],
     ["¿Qué sucede después del diagnóstico?", "La empresa podrá revisar sus recomendaciones y, si lo considera oportuno, solicitar a COPARMEX una evaluación especializada."],
     ["¿Por qué se está haciendo esto?", "Para impulsar empresas más organizadas, preparadas y capaces de responder a oportunidades, riesgos y exigencias del entorno."],
-    ["Duración", "El autodiagnóstico toma aproximadamente de 7 a 10 minutos."],
+    ["Duración", "El autodiagnóstico toma aproximadamente de 12 a 15 minutos."],
     ["Confidencialidad y uso de la información", "La información individual se mantiene protegida y su uso agregado permite construir indicadores institucionales sin revelar datos particulares."],
     ["Fuentes de referencia", "Marco normativo aplicable y mejores prácticas nacionales e internacionales en gobierno, cumplimiento y documentación empresarial."],
   ];
