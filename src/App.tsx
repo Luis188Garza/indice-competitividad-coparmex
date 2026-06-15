@@ -39,6 +39,7 @@ import { findCompanyForAccess } from "./services/companyAccessService";
 import { listAccessRequests, saveAccessRequest, updateAccessRequestStatus, type AccessRequestRecord } from "./services/accessRequestsService";
 import { getResponsesByCompany, listDiagnosticResponses, saveDiagnosticResponse } from "./services/diagnosticResponsesService";
 import { createObservation, getObservationsByCompany, listObservations, type ObservationRecord } from "./services/observationsService";
+import { getInstitutionalSettings, saveInstitutionalSettings, type InstitutionalSettingsData } from "./services/institutionalSettingsService";
 import { calculateDiagnostic } from "./utils/scoring";
 import { CompanyImportRow, DuplicateMode, parseCompanyImportFile } from "./utils/companyImport";
 
@@ -52,6 +53,7 @@ type AdminCompany = CompanyProfile & { accessStatus?: string; authUid?: string; 
 type AppRoute = { view: View; companyTab?: CompanyTab; adminTab?: AdminTab; privateRole?: "empresa" | "admin" };
 type AdminDiagnosticRecord = { id: string; companyId: string; companyName: string; companySector: string; completedAt: string; result: DiagnosticResult; source: "saved" | "local" };
 type PresidentLetter = { title: string; presidentName: string; presidentRole: string; body: string };
+type SpecializedEvaluationEmail = { to: string; cc: string; bcc: string; subject: string; body: string };
 
 const diagnosticModules = diagnosticICE.modules.slice().sort((a, b) => a.order - b.order);
 const diagnosticQuestions = diagnosticModules.flatMap((module) => module.questions.slice().sort((a, b) => a.order - b.order));
@@ -94,6 +96,34 @@ Porque la competitividad requiere de institucionalidad.
 
 Gracias por confiar en COPARMEX.`,
 };
+const defaultSpecializedEvaluationEmail: SpecializedEvaluationEmail = {
+  to: "admin@coparmexnld.org.mx",
+  cc: "",
+  bcc: "",
+  subject: "Solicitud de Evaluación Especializada ICE - {{empresa}}",
+  body: `COPARMEX Nuevo Laredo:
+
+Por medio del presente, la empresa {{empresa}}, folio {{folio}}, solicita iniciar el proceso de Evaluación Especializada derivado de los resultados obtenidos en el Índice de Competitividad Empresarial.
+
+Datos generales:
+Empresa: {{empresa}}
+Folio: {{folio}}
+Representante: {{representante}}
+Correo: {{correo}}
+Resultado ICE: {{nivel}} - {{porcentaje}}%
+
+Secciones prioritarias o de atención:
+{{seccionesAtencion}}
+
+Quedamos atentos a la documentación requerida para continuar con el proceso.
+
+Atentamente,
+{{empresa}}`,
+};
+const defaultInstitutionalSettings: Required<InstitutionalSettingsData> = {
+  presidentLetter: defaultPresidentLetter,
+  specializedEvaluationEmail: defaultSpecializedEvaluationEmail,
+};
 const getPresidentLetter = (): PresidentLetter => {
   if (typeof window === "undefined") return defaultPresidentLetter;
   try {
@@ -103,8 +133,8 @@ const getPresidentLetter = (): PresidentLetter => {
   }
 };
 const escapeLetterHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[character] ?? character));
-const openPresidentLetter = () => {
-  const letter = getPresidentLetter();
+const openPresidentLetter = (configuredLetter?: PresidentLetter) => {
+  const letter = configuredLetter ?? getPresidentLetter();
   const paragraphs = letter.body.split(/\n\s*\n/).filter(Boolean).map((paragraph) => `<p>${escapeLetterHtml(paragraph).replace(/\n/g, "<br>")}</p>`).join("");
   const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${escapeLetterHtml(letter.title)}</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;background:#f3f6fa;color:#102d4d;font-family:Arial,sans-serif}.page{width:min(760px,calc(100% - 32px));margin:40px auto;padding:42px;background:white;border-top:6px solid #0868b7;box-shadow:0 18px 50px rgba(9,40,74,.12)}h1{margin:0 0 26px;font-size:34px}p{line-height:1.7;color:#334e68}.signature{margin-top:34px;padding-top:20px;border-top:1px solid #d8e2ed}.signature strong,.signature span{display:block}.signature span{margin-top:5px;color:#667b91}@media(max-width:600px){.page{margin:16px auto;padding:24px}h1{font-size:27px}}</style></head><body><main class="page"><h1>${escapeLetterHtml(letter.title)}</h1>${paragraphs}<div class="signature"><strong>${escapeLetterHtml(letter.presidentName)}</strong><span>${escapeLetterHtml(letter.presidentRole)}</span></div></main></body></html>`;
   const letterUrl = URL.createObjectURL(new Blob([html], { type: "text/html" }));
@@ -408,6 +438,7 @@ function App() {
   const [adminDiagnosticsLoading, setAdminDiagnosticsLoading] = useState(false);
   const [adminDiagnosticsError, setAdminDiagnosticsError] = useState("");
   const [saveState, setSaveState] = useState<{ loading: boolean; error: string; success: string }>({ loading: false, error: "", success: "" });
+  const [institutionalSettings, setInstitutionalSettings] = useState<Required<InstitutionalSettingsData>>(defaultInstitutionalSettings);
   const skipNextAnswerSave = useRef(false);
 
   const latestSavedByCompany = new Map(savedAdminDiagnostics.map((diagnostic) => [diagnostic.companyId, diagnostic]));
@@ -424,6 +455,18 @@ function App() {
   const currentQuestions = diagnosticModules[currentModule].questions.slice().sort((a, b) => a.order - b.order);
   const answeredQuestions = diagnosticQuestions.filter((question) => answers[question.id] !== undefined).length;
   const progress = Math.round((answeredQuestions / diagnosticQuestions.length) * 100);
+
+  useEffect(() => {
+    getInstitutionalSettings()
+      .then((saved) => {
+        if (!saved) return;
+        setInstitutionalSettings({
+          presidentLetter: { ...defaultPresidentLetter, ...saved.presidentLetter },
+          specializedEvaluationEmail: { ...defaultSpecializedEvaluationEmail, ...saved.specializedEvaluationEmail },
+        });
+      })
+      .catch((reason) => console.error("No fue posible consultar la configuración institucional.", reason));
+  }, []);
 
   useEffect(() => {
     if (!activeCompanyId) return;
@@ -813,7 +856,7 @@ function App() {
 
       <main>
         {!authReady && <SessionRestoreScreen />}
-        {authReady && view === "landing" && <Landing onPortal={() => setView("login")} onRequestAccess={() => setView("requestAccess")} />}
+        {authReady && view === "landing" && <Landing letter={institutionalSettings.presidentLetter} onPortal={() => setView("login")} onRequestAccess={() => setView("requestAccess")} />}
         {authReady && view === "about" && <AboutIndex onPortal={() => setView("login")} onRequestAccess={() => setView("requestAccess")} />}
         {authReady && view === "login" && <AccessHub onCompany={() => setView("loginEmpresa")} onAdmin={() => setView("loginAdmin")} />}
         {authReady && view === "loginEmpresa" && <CompanyLogin onLogin={loginCompany} />}
@@ -855,6 +898,7 @@ function App() {
             onStart={startDiagnostic}
             onPdf={simulatePdf}
             onCompanyUpdated={updateAuthenticatedCompanyProfile}
+            specializedEvaluationEmail={institutionalSettings.specializedEvaluationEmail}
           />
         )}
         {authReady && view === "admin" && session.role === "admin" && (
@@ -870,6 +914,8 @@ function App() {
             diagnostics={adminLatestDiagnostics}
             diagnosticsLoading={adminDiagnosticsLoading}
             diagnosticsError={adminDiagnosticsError}
+            institutionalSettings={institutionalSettings}
+            onInstitutionalSettingsUpdated={setInstitutionalSettings}
           />
         )}
         {authReady && view === "stats" && session.role === "admin" && <RegionalStats stats={stats} />}
@@ -975,7 +1021,7 @@ function SessionRestoreScreen() {
   );
 }
 
-function Landing({ onPortal, onRequestAccess }: { onPortal: () => void; onRequestAccess: () => void }) {
+function Landing({ letter, onPortal, onRequestAccess }: { letter: PresidentLetter; onPortal: () => void; onRequestAccess: () => void }) {
   const [showWelcome, setShowWelcome] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem("iceWelcomeDismissed") !== "true";
@@ -988,8 +1034,6 @@ function Landing({ onPortal, onRequestAccess }: { onPortal: () => void; onReques
     dismissWelcome();
     onRequestAccess();
   };
-  const letter = getPresidentLetter();
-
   return (
     <>
       <section className="hero">
@@ -1634,7 +1678,7 @@ function ResultScreen({ company, result, saveState, onPdf, onPortal, onRecommend
   );
 }
 
-function CompanyPortal({ tab, setTab, company, result, hasRegisteredDiagnostic, loadingResult, resultError, onStart, onPdf, onCompanyUpdated }: { tab: CompanyTab; setTab: (tab: CompanyTab) => void; company: CompanyProfile; result: DiagnosticResult | null; hasRegisteredDiagnostic: boolean; loadingResult: boolean; resultError: string; onStart: () => void; onPdf: () => void; onCompanyUpdated: (updates: Partial<CompanyProfile>) => void }) {
+function CompanyPortal({ tab, setTab, company, result, hasRegisteredDiagnostic, loadingResult, resultError, onStart, onPdf, onCompanyUpdated, specializedEvaluationEmail }: { tab: CompanyTab; setTab: (tab: CompanyTab) => void; company: CompanyProfile; result: DiagnosticResult | null; hasRegisteredDiagnostic: boolean; loadingResult: boolean; resultError: string; onStart: () => void; onPdf: () => void; onCompanyUpdated: (updates: Partial<CompanyProfile>) => void; specializedEvaluationEmail: SpecializedEvaluationEmail }) {
   const tabs: CompanyTab[] = ["dashboard", "autodiagnostico", "resultado", "recomendaciones", "observaciones", "perfil"];
   return (
     <section className="portal">
@@ -1646,7 +1690,7 @@ function CompanyPortal({ tab, setTab, company, result, hasRegisteredDiagnostic, 
         {tab === "recomendaciones" && (result ? (
           <>
             <ResponseBankInsights result={result} title="Recomendaciones puntuales ICE" description="Detalle de hallazgos, riesgos, recomendaciones puntuales y posibles líneas de apoyo según el resultado del autodiagnóstico." showInstitutionalNote />
-            <SpecializedEvaluationAction company={company} result={result} />
+            <SpecializedEvaluationAction company={company} result={result} emailConfig={specializedEvaluationEmail} />
           </>
         ) : <EmptyDiagnosticState company={company} onStart={onStart} loading={loadingResult} error={resultError} />)}
         {tab === "observaciones" && <ObservationList companyId={company.id} companyName={company.name} authorRole="company" authorName={company.name} />}
@@ -1657,7 +1701,7 @@ function CompanyPortal({ tab, setTab, company, result, hasRegisteredDiagnostic, 
   );
 }
 
-function AdminPortal(props: { tab: AdminTab; setTab: (tab: AdminTab) => void; stats: any; selectedCompanyId: string; setSelectedCompanyId: (id: string) => void; setSelectedAdminCompany: (company: AdminCompany | null) => void; setView: (view: View) => void; onPdf: () => void; diagnostics: AdminDiagnosticRecord[]; diagnosticsLoading: boolean; diagnosticsError: string }) {
+function AdminPortal(props: { tab: AdminTab; setTab: (tab: AdminTab) => void; stats: any; selectedCompanyId: string; setSelectedCompanyId: (id: string) => void; setSelectedAdminCompany: (company: AdminCompany | null) => void; setView: (view: View) => void; onPdf: () => void; diagnostics: AdminDiagnosticRecord[]; diagnosticsLoading: boolean; diagnosticsError: string; institutionalSettings: Required<InstitutionalSettingsData>; onInstitutionalSettingsUpdated: (settings: Required<InstitutionalSettingsData>) => void }) {
   const tabs: AdminTab[] = ["panel", "empresas", "estadisticas", "observaciones", "reportes", "configuracion"];
   const [intent, setIntent] = useState<AdminIntent>(null);
   const navigate = (tab: AdminTab, nextIntent: AdminIntent = null) => {
@@ -1674,7 +1718,7 @@ function AdminPortal(props: { tab: AdminTab; setTab: (tab: AdminTab) => void; st
         {props.tab === "estadisticas" && <RegionalStats stats={props.stats} compact />}
         {props.tab === "observaciones" && <AllObservations />}
         {props.tab === "reportes" && <ReportsPanelV3 intent={intent} diagnostics={props.diagnostics} />}
-        {props.tab === "configuracion" && <ConfigPanel />}
+        {props.tab === "configuracion" && <ConfigPanel settings={props.institutionalSettings} onUpdated={props.onInstitutionalSettingsUpdated} />}
       </div>
     </section>
   );
@@ -2871,32 +2915,31 @@ function ResponseBankInsights({ result, title = "Lectura ICE por secciones", des
   );
 }
 
-function SpecializedEvaluationAction({ company, result }: { company: CompanyProfile; result: DiagnosticResult }) {
+function renderEmailTemplate(template: string, values: Record<string, string>) {
+  return Object.entries(values).reduce((rendered, [key, value]) => rendered.replaceAll(`{{${key}}}`, value), template);
+}
+
+function SpecializedEvaluationAction({ company, result, emailConfig }: { company: CompanyProfile; result: DiagnosticResult; emailConfig: SpecializedEvaluationEmail }) {
   const relevantSections = result.moduleScores
     .filter((score) => score.percentage < 80)
     .map((score) => `${score.title}: ${score.percentage}%`)
     .join("\n") || "Sin secciones prioritarias o de atención.";
   const level = getComplianceLevel(result.percentage).label;
-  const subject = `Solicitud de Evaluación Especializada ICE - ${company.name}`;
-  const body = `COPARMEX Nuevo Laredo:
-
-Por medio del presente, la empresa ${company.name}, folio ${getCompanyFolio(company)}, solicita iniciar el proceso de Evaluación Especializada derivado de los resultados obtenidos en el Índice de Competitividad Empresarial.
-
-Datos generales:
-Empresa: ${company.name}
-Folio: ${getCompanyFolio(company)}
-Representante: ${company.representative || "No capturado"}
-Correo: ${company.email || "No capturado"}
-Resultado ICE: ${level} - ${result.percentage}%
-
-Secciones prioritarias o de atención:
-${relevantSections}
-
-Quedamos atentos a la documentación requerida para continuar con el proceso.
-
-Atentamente,
-${company.name}`;
-  const mailto = `mailto:admin@coparmexnld.org.mx?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  const values = {
+    empresa: company.name,
+    folio: getCompanyFolio(company),
+    representante: company.representative || "No capturado",
+    correo: company.email || "No capturado",
+    nivel: level,
+    porcentaje: String(result.percentage),
+    seccionesAtencion: relevantSections,
+  };
+  const subject = renderEmailTemplate(emailConfig.subject, values);
+  const body = renderEmailTemplate(emailConfig.body, values);
+  const params = new URLSearchParams({ subject, body });
+  if (emailConfig.cc.trim()) params.set("cc", emailConfig.cc.trim());
+  if (emailConfig.bcc.trim()) params.set("bcc", emailConfig.bcc.trim());
+  const mailto = `mailto:${emailConfig.to.trim()}?${params.toString()}`;
 
   return (
     <section className="card specialized-evaluation">
@@ -4028,16 +4071,43 @@ async function exportExcel(filename: string, title: string, rows: Record<string,
   XLSX.writeFile(workbook, filename, { compression: true });
 }
 
-function ConfigPanel() {
-  const [presidentLetter, setPresidentLetter] = useState<PresidentLetter>(() => getPresidentLetter());
-  const [letterMessage, setLetterMessage] = useState("");
+function ConfigPanel({ settings, onUpdated }: { settings: Required<InstitutionalSettingsData>; onUpdated: (settings: Required<InstitutionalSettingsData>) => void }) {
+  const [presidentLetter, setPresidentLetter] = useState<PresidentLetter>(settings.presidentLetter);
+  const [emailConfig, setEmailConfig] = useState<SpecializedEvaluationEmail>(settings.specializedEvaluationEmail);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const emailTags = ["empresa", "folio", "representante", "correo", "nivel", "porcentaje", "seccionesAtencion"];
+
+  useEffect(() => {
+    setPresidentLetter(settings.presidentLetter);
+    setEmailConfig(settings.specializedEvaluationEmail);
+  }, [settings]);
+
   const updateLetter = (key: keyof PresidentLetter, value: string) => {
     setPresidentLetter((current) => ({ ...current, [key]: value }));
-    setLetterMessage("");
+    setMessage("");
   };
-  const saveLetter = () => {
-    window.localStorage.setItem(presidentLetterStorageKey, JSON.stringify(presidentLetter));
-    setLetterMessage("La Carta de bienvenida COPARMEX fue actualizada correctamente.");
+  const updateEmail = (key: keyof SpecializedEvaluationEmail, value: string) => {
+    setEmailConfig((current) => ({ ...current, [key]: value }));
+    setMessage("");
+  };
+  const saveSettings = async () => {
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      const updated = { presidentLetter, specializedEvaluationEmail: emailConfig };
+      await saveInstitutionalSettings(updated);
+      window.localStorage.setItem(presidentLetterStorageKey, JSON.stringify(presidentLetter));
+      onUpdated(updated);
+      setMessage("La configuración institucional fue actualizada correctamente.");
+    } catch (reason) {
+      console.error("No fue posible guardar la configuración institucional.", reason);
+      setError(getFriendlyErrorMessage(reason, "No fue posible guardar la configuración institucional."));
+    } finally {
+      setSaving(false);
+    }
   };
   return (
     <div className="card">
@@ -4049,7 +4119,7 @@ function ConfigPanel() {
             <h3>Carta de bienvenida COPARMEX</h3>
             <p>Edita el mensaje institucional que las empresas pueden consultar desde la bienvenida pública.</p>
           </div>
-          <button className="secondary" type="button" onClick={openPresidentLetter}><ExternalLink size={17} /> Vista previa</button>
+          <button className="secondary" type="button" onClick={() => openPresidentLetter(presidentLetter)}><ExternalLink size={17} /> Vista previa</button>
         </div>
         <div className="form-grid">
           <Field label="Título de la carta" value={presidentLetter.title} onChange={(value) => updateLetter("title", value)} transform="none" />
@@ -4060,9 +4130,32 @@ function ConfigPanel() {
             <textarea value={presidentLetter.body} onChange={(event) => updateLetter("body", event.target.value)} />
           </label>
         </div>
-        {letterMessage && <div className="save-status success">{letterMessage}</div>}
-        <button className="primary" type="button" onClick={saveLetter}>Guardar carta</button>
       </section>
+      <section className="president-letter-editor settings-email-editor">
+        <div className="section-title-row">
+          <div>
+            <h3>Correo de evaluación especializada</h3>
+            <p>Configura destinatarios y mensaje. Las etiquetas se reemplazan automáticamente con los datos de cada empresa y resultado.</p>
+          </div>
+        </div>
+        <div className="form-grid">
+          <Field label="Destinatario" value={emailConfig.to} onChange={(value) => updateEmail("to", value)} transform="none" />
+          <Field label="Copia a" value={emailConfig.cc} onChange={(value) => updateEmail("cc", value)} transform="none" />
+          <Field label="Copia oculta a" value={emailConfig.bcc} onChange={(value) => updateEmail("bcc", value)} transform="none" />
+          <Field label="Asunto" value={emailConfig.subject} onChange={(value) => updateEmail("subject", value)} transform="none" />
+          <label className="field president-letter-body">
+            <span>Mensaje predeterminado</span>
+            <textarea value={emailConfig.body} onChange={(event) => updateEmail("body", event.target.value)} />
+          </label>
+        </div>
+        <div className="template-tags" aria-label="Etiquetas dinámicas disponibles">
+          <strong>Etiquetas dinámicas disponibles</strong>
+          <div>{emailTags.map((tag) => <code key={tag}>{`{{${tag}}}`}</code>)}</div>
+        </div>
+      </section>
+      {error && <div className="form-error">{error}</div>}
+      {message && <div className="save-status success">{message}</div>}
+      <button className="primary" type="button" onClick={saveSettings} disabled={saving}>{saving ? "Guardando..." : "Guardar configuración"}</button>
     </div>
   );
 }

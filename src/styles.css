@@ -2013,6 +2013,20 @@ main { min-height: calc(100vh - 74px); }
 }
 .president-letter-body { grid-column: 1 / -1; }
 .president-letter-body textarea { min-height: 230px; text-transform: none; }
+.settings-email-editor { margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--line); }
+.template-tags { display: grid; gap: 9px; margin: 16px 0; }
+.template-tags > strong { color: var(--navy); font-size: 14px; }
+.template-tags > div { display: flex; flex-wrap: wrap; gap: 7px; }
+.template-tags code {
+  padding: 6px 9px;
+  border: 1px solid #c8d9ee;
+  border-radius: 6px;
+  background: var(--blue-soft);
+  color: var(--blue);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 800;
+}
 
 @media (max-width: 960px) {
   .desktop-nav { display: none; }
