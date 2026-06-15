@@ -457,6 +457,12 @@ function App() {
   const progress = Math.round((answeredQuestions / diagnosticQuestions.length) * 100);
 
   useEffect(() => {
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+    });
+  }, [view, companyTab, adminTab, currentModule]);
+
+  useEffect(() => {
     getInstitutionalSettings()
       .then((saved) => {
         if (!saved) return;
