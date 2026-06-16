@@ -59,7 +59,6 @@ type LegalDocuments = { privacyNotice: string; termsAndConditions: string };
 
 const diagnosticModules = diagnosticICE.modules.slice().sort((a, b) => a.order - b.order);
 const diagnosticQuestions = diagnosticModules.flatMap((module) => module.questions.slice().sort((a, b) => a.order - b.order));
-const adminAccessEmail = "admin@coparmexnld.org.mx";
 const presidentLetterStorageKey = "icePresidentLetter-v2";
 const defaultPresidentLetter: PresidentLetter = {
   title: "Bienvenido al Índice de Competitividad Empresarial (ICE)",
@@ -151,11 +150,7 @@ const getPresidentLetter = (): PresidentLetter => {
     return defaultPresidentLetter;
   }
 };
-const resolveAdminSession = async (uid: string, email: string | null | undefined): Promise<Session | null> => {
-  if (normalizeEmail(email) === adminAccessEmail) {
-    return { isAuthenticated: true, role: "admin", adminName: "Administrador COPARMEX" };
-  }
-
+const resolveAdminSession = async (uid: string, _email: string | null | undefined): Promise<Session | null> => {
   const admin = await getAdminByUid(uid);
   if (!admin || admin.active === false) return null;
 
