@@ -1424,7 +1424,7 @@ function AccessRequestScreen({ legalDocuments, onBack, onLogin }: { legalDocumen
               <input type="checkbox" checked={form.termsAccepted} onChange={(event) => update("termsAccepted", event.target.checked)} />
               <span>Acepto los <button type="button" className="inline-link" onClick={() => setLegalModal("terms")}>Términos y Condiciones</button> de uso de la plataforma.</span>
             </label>
-            <button className="primary" onClick={submit} disabled={loading}>{loading ? "Creando acceso..." : "Crear acceso"}</button>
+            <button className="primary" onClick={submit} disabled={loading || !form.privacyAccepted || !form.termsAccepted}>{loading ? "Creando acceso..." : "Crear acceso"}</button>
           </div>
         )}
 
