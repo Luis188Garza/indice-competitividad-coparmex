@@ -54,6 +54,7 @@ type AppRoute = { view: View; companyTab?: CompanyTab; adminTab?: AdminTab; priv
 type AdminDiagnosticRecord = { id: string; companyId: string; companyName: string; companySector: string; completedAt: string; result: DiagnosticResult; source: "saved" | "local" };
 type PresidentLetter = { title: string; presidentName: string; presidentRole: string; body: string };
 type SpecializedEvaluationEmail = { to: string; cc: string; bcc: string; subject: string; body: string };
+type LegalDocuments = { privacyNotice: string; termsAndConditions: string };
 
 const diagnosticModules = diagnosticICE.modules.slice().sort((a, b) => a.order - b.order);
 const diagnosticQuestions = diagnosticModules.flatMap((module) => module.questions.slice().sort((a, b) => a.order - b.order));
@@ -120,9 +121,26 @@ Quedamos atentos a la documentación requerida para continuar con el proceso.
 Atentamente,
 {{empresa}}`,
 };
+const defaultLegalDocuments: LegalDocuments = {
+  privacyNotice: `COPARMEX Nuevo Laredo tratará la información proporcionada por la empresa con fines de registro, acceso a la plataforma, seguimiento institucional, generación de resultados del autodiagnóstico y construcción de indicadores agregados relacionados con competitividad empresarial.
+
+La información individual de cada empresa se utilizará únicamente para fines de operación del Índice de Competitividad Empresarial, seguimiento interno y comunicación institucional.
+
+Los datos agregados podrán utilizarse para análisis estadístico, indicadores regionales y reportes institucionales, sin revelar información particular de una empresa identificable.
+
+La empresa podrá solicitar aclaraciones sobre el uso de su información a través de los canales oficiales de COPARMEX Nuevo Laredo.`,
+  termsAndConditions: `El uso de la plataforma del Índice de Competitividad Empresarial implica la aceptación de estas condiciones de uso.
+
+El autodiagnóstico tiene carácter orientativo y no sustituye auditorías, dictámenes legales, fiscales, laborales o especializados.
+
+La empresa es responsable de responder con información veraz y actualizada. Los resultados se generan con base en las respuestas capturadas.
+
+COPARMEX Nuevo Laredo podrá utilizar la información capturada para brindar seguimiento institucional, generar indicadores agregados y proponer acciones de fortalecimiento empresarial.`,
+};
 const defaultInstitutionalSettings: Required<InstitutionalSettingsData> = {
   presidentLetter: defaultPresidentLetter,
   specializedEvaluationEmail: defaultSpecializedEvaluationEmail,
+  legalDocuments: defaultLegalDocuments,
 };
 const getPresidentLetter = (): PresidentLetter => {
   if (typeof window === "undefined") return defaultPresidentLetter;
@@ -469,6 +487,7 @@ function App() {
         setInstitutionalSettings({
           presidentLetter: { ...defaultPresidentLetter, ...saved.presidentLetter },
           specializedEvaluationEmail: { ...defaultSpecializedEvaluationEmail, ...saved.specializedEvaluationEmail },
+          legalDocuments: { ...defaultLegalDocuments, ...saved.legalDocuments },
         });
       })
       .catch((reason) => console.error("No fue posible consultar la configuración institucional.", reason));
@@ -867,7 +886,7 @@ function App() {
         {authReady && view === "login" && <AccessHub onCompany={() => setView("loginEmpresa")} onAdmin={() => setView("loginAdmin")} />}
         {authReady && view === "loginEmpresa" && <CompanyLogin onLogin={loginCompany} />}
         {authReady && view === "loginAdmin" && <AdminLogin onLogin={loginAdmin} />}
-        {authReady && view === "requestAccess" && <AccessRequestScreen onBack={() => setView("landing")} onLogin={() => setView("loginEmpresa")} />}
+        {authReady && view === "requestAccess" && <AccessRequestScreen legalDocuments={institutionalSettings.legalDocuments} onBack={() => setView("landing")} onLogin={() => setView("loginEmpresa")} />}
         {authReady && view === "register" && <Register profile={profile} setProfile={setProfile} onNext={() => setView("questionnaire")} />}
         {authReady && requiresPasswordChange && <PasswordChangeScreen company={authenticatedCompany!} onChanged={completePasswordChange} onLogout={logout} />}
         {authReady && !requiresPasswordChange && view === "questionnaire" && (
@@ -1141,7 +1160,7 @@ function AccessHub({ onCompany, onAdmin }: { onCompany: () => void; onAdmin: () 
   );
 }
 
-function AccessRequestScreen({ onBack, onLogin }: { onBack: () => void; onLogin: () => void }) {
+function AccessRequestScreen({ legalDocuments, onBack, onLogin }: { legalDocuments: LegalDocuments; onBack: () => void; onLogin: () => void }) {
   const [form, setForm] = useState({
     folio: "",
     email: "",
@@ -1156,6 +1175,7 @@ function AccessRequestScreen({ onBack, onLogin }: { onBack: () => void; onLogin:
   const [verifying, setVerifying] = useState(false);
   const [recoveryOpen, setRecoveryOpen] = useState(false);
   const [recoveryLoading, setRecoveryLoading] = useState(false);
+  const [legalModal, setLegalModal] = useState<null | "privacy" | "terms">(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [accountExists, setAccountExists] = useState(false);
@@ -1398,11 +1418,11 @@ function AccessRequestScreen({ onBack, onLogin }: { onBack: () => void; onLogin:
             <p className="field-hint">La contraseña debe tener al menos 8 caracteres.</p>
             <label className="check-row">
               <input type="checkbox" checked={form.privacyAccepted} onChange={(event) => update("privacyAccepted", event.target.checked)} />
-              <span>He leído y acepto el <button type="button" className="inline-link">Aviso de Privacidad</button>.</span>
+              <span>He leído y acepto el <button type="button" className="inline-link" onClick={() => setLegalModal("privacy")}>Aviso de Privacidad</button>.</span>
             </label>
             <label className="check-row">
               <input type="checkbox" checked={form.termsAccepted} onChange={(event) => update("termsAccepted", event.target.checked)} />
-              <span>Acepto los <button type="button" className="inline-link">Términos y Condiciones</button> de uso de la plataforma.</span>
+              <span>Acepto los <button type="button" className="inline-link" onClick={() => setLegalModal("terms")}>Términos y Condiciones</button> de uso de la plataforma.</span>
             </label>
             <button className="primary" onClick={submit} disabled={loading}>{loading ? "Creando acceso..." : "Crear acceso"}</button>
           </div>
@@ -1415,7 +1435,38 @@ function AccessRequestScreen({ onBack, onLogin }: { onBack: () => void; onLogin:
           <button className="secondary" onClick={onBack}>Volver al inicio</button>
         </div>
       </div>
+      {legalModal && (
+        <DocumentModal
+          title={legalModal === "privacy" ? "Aviso de Privacidad" : "Términos y Condiciones"}
+          body={legalModal === "privacy" ? legalDocuments.privacyNotice : legalDocuments.termsAndConditions}
+          onClose={() => setLegalModal(null)}
+        />
+      )}
     </section>
+  );
+}
+
+function DocumentModal({ title, body, onClose }: { title: string; body: string; onClose: () => void }) {
+  return (
+    <div className="welcome-modal-overlay legal-modal-overlay">
+      <section className="welcome-modal legal-modal" role="dialog" aria-modal="true" aria-labelledby="legal-modal-title">
+        <button className="welcome-modal-close" type="button" aria-label="Cerrar ventana" onClick={onClose}>
+          <X size={20} />
+        </button>
+        <div className="welcome-modal-scroll">
+          <article className="welcome-letter-sheet">
+            <span className="eyebrow">COPARMEX Nuevo Laredo</span>
+            <h2 id="legal-modal-title">{title}</h2>
+            <div className="welcome-letter-body">
+              {body.split(/\n\s*\n/).filter(Boolean).map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+            </div>
+          </article>
+        </div>
+        <div className="welcome-modal-actions">
+          <button className="primary" type="button" onClick={onClose}>Entendido</button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -4083,6 +4134,7 @@ async function exportExcel(filename: string, title: string, rows: Record<string,
 function ConfigPanel({ settings, onUpdated }: { settings: Required<InstitutionalSettingsData>; onUpdated: (settings: Required<InstitutionalSettingsData>) => void }) {
   const [presidentLetter, setPresidentLetter] = useState<PresidentLetter>(settings.presidentLetter);
   const [emailConfig, setEmailConfig] = useState<SpecializedEvaluationEmail>(settings.specializedEvaluationEmail);
+  const [legalDocuments, setLegalDocuments] = useState<LegalDocuments>(settings.legalDocuments);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -4091,6 +4143,7 @@ function ConfigPanel({ settings, onUpdated }: { settings: Required<Institutional
   useEffect(() => {
     setPresidentLetter(settings.presidentLetter);
     setEmailConfig(settings.specializedEvaluationEmail);
+    setLegalDocuments(settings.legalDocuments);
   }, [settings]);
 
   const updateLetter = (key: keyof PresidentLetter, value: string) => {
@@ -4101,12 +4154,16 @@ function ConfigPanel({ settings, onUpdated }: { settings: Required<Institutional
     setEmailConfig((current) => ({ ...current, [key]: value }));
     setMessage("");
   };
+  const updateLegalDocument = (key: keyof LegalDocuments, value: string) => {
+    setLegalDocuments((current) => ({ ...current, [key]: value }));
+    setMessage("");
+  };
   const saveSettings = async () => {
     setSaving(true);
     setMessage("");
     setError("");
     try {
-      const updated = { presidentLetter, specializedEvaluationEmail: emailConfig };
+      const updated = { presidentLetter, specializedEvaluationEmail: emailConfig, legalDocuments };
       await saveInstitutionalSettings(updated);
       window.localStorage.setItem(presidentLetterStorageKey, JSON.stringify(presidentLetter));
       onUpdated(updated);
@@ -4160,6 +4217,24 @@ function ConfigPanel({ settings, onUpdated }: { settings: Required<Institutional
         <div className="template-tags" aria-label="Etiquetas dinámicas disponibles">
           <strong>Etiquetas dinámicas disponibles</strong>
           <div>{emailTags.map((tag) => <code key={tag}>{`{{${tag}}}`}</code>)}</div>
+        </div>
+      </section>
+      <section className="president-letter-editor settings-email-editor">
+        <div className="section-title-row">
+          <div>
+            <h3>Aviso de privacidad y términos</h3>
+            <p>Edita los textos que la empresa puede consultar durante el proceso de obtener acceso.</p>
+          </div>
+        </div>
+        <div className="form-grid">
+          <label className="field president-letter-body">
+            <span>Aviso de Privacidad</span>
+            <textarea value={legalDocuments.privacyNotice} onChange={(event) => updateLegalDocument("privacyNotice", event.target.value)} />
+          </label>
+          <label className="field president-letter-body">
+            <span>Términos y Condiciones</span>
+            <textarea value={legalDocuments.termsAndConditions} onChange={(event) => updateLegalDocument("termsAndConditions", event.target.value)} />
+          </label>
         </div>
       </section>
       {error && <div className="form-error">{error}</div>}

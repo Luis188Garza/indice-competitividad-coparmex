@@ -15,6 +15,10 @@ export type InstitutionalSettingsData = {
     subject: string;
     body: string;
   };
+  legalDocuments?: {
+    privacyNotice: string;
+    termsAndConditions: string;
+  };
 };
 
 const settingsRef = () => doc(requireFirestore(), "platformSettings", "institutional");
