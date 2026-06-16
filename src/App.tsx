@@ -1599,7 +1599,7 @@ function CompanyLogin({ onLogin }: { onLogin: (email: string, password: string) 
 }
 
 function AdminLogin({ onLogin }: { onLogin: (user: string, password: string) => Promise<void> }) {
-  const [user, setUser] = useState(adminAccessEmail);
+  const [user, setUser] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
