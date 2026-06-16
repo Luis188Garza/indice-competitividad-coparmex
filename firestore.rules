@@ -11,6 +11,10 @@ service cloud.firestore {
         && (
           request.auth.token.admin == true
           || request.auth.token.email == "admin@coparmexnld.org.mx"
+          || (
+            exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+            && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.active == true
+          )
         );
     }
 
@@ -120,6 +124,11 @@ service cloud.firestore {
     match /platformSettings/{settingsId} {
       allow read: if true;
       allow create, update, delete: if isAdmin();
+    }
+
+    match /admins/{adminId} {
+      allow get: if signedIn() && request.auth.uid == adminId;
+      allow list, create, update, delete: if isAdmin();
     }
 
     match /{document=**} {

@@ -40,6 +40,7 @@ import { listAccessRequests, saveAccessRequest, updateAccessRequestStatus, type 
 import { getResponsesByCompany, listDiagnosticResponses, saveDiagnosticResponse } from "./services/diagnosticResponsesService";
 import { createObservation, getObservationsByCompany, listObservations, type ObservationRecord } from "./services/observationsService";
 import { getInstitutionalSettings, saveInstitutionalSettings, type InstitutionalSettingsData } from "./services/institutionalSettingsService";
+import { getAdminByUid } from "./services/adminsService";
 import { calculateDiagnostic } from "./utils/scoring";
 import { CompanyImportRow, DuplicateMode, parseCompanyImportFile } from "./utils/companyImport";
 
@@ -149,6 +150,20 @@ const getPresidentLetter = (): PresidentLetter => {
   } catch {
     return defaultPresidentLetter;
   }
+};
+const resolveAdminSession = async (uid: string, email: string | null | undefined): Promise<Session | null> => {
+  if (normalizeEmail(email) === adminAccessEmail) {
+    return { isAuthenticated: true, role: "admin", adminName: "Administrador COPARMEX" };
+  }
+
+  const admin = await getAdminByUid(uid);
+  if (!admin || admin.active === false) return null;
+
+  return {
+    isAuthenticated: true,
+    role: "admin",
+    adminName: admin.name || admin.email || "Administrador COPARMEX",
+  };
 };
 const escapeLetterHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[character] ?? character));
 const openPresidentLetter = (configuredLetter?: PresidentLetter) => {
@@ -590,8 +605,8 @@ function App() {
       }
 
       try {
-        if (normalizeEmail(user.email) === adminAccessEmail) {
-          const adminSession: Session = { isAuthenticated: true, role: "admin", adminName: "Administrador COPARMEX" };
+        const adminSession = await resolveAdminSession(user.uid, user.email);
+        if (adminSession) {
           setAuthenticatedCompany(null);
           setSession(adminSession);
           window.localStorage.removeItem("ice-current-company");
@@ -823,17 +838,13 @@ function App() {
 
   const loginAdmin = async (user: string, password: string) => {
     const email = normalizeEmail(user);
-    if (email !== adminAccessEmail) {
-      throw new Error("Esta cuenta no tiene acceso al panel administrativo.");
-    }
-
     const credential = await loginWithEmail(email, password);
-    if (normalizeEmail(credential.user.email) !== adminAccessEmail) {
+    const adminSession = await resolveAdminSession(credential.user.uid, credential.user.email);
+    if (!adminSession) {
       await firebaseLogout();
       throw new Error("Esta cuenta no tiene acceso al panel administrativo.");
     }
 
-    const adminSession: Session = { isAuthenticated: true, role: "admin", adminName: "Administrador COPARMEX" };
     setSession(adminSession);
     window.localStorage.setItem("ice-admin-session", JSON.stringify(adminSession));
     setAdminTab("panel");
