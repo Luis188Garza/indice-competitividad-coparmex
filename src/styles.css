@@ -170,7 +170,8 @@ main { min-height: calc(100vh - 74px); }
 .hero {
   display: grid;
   grid-template-columns: minmax(0, 920px);
-  align-items: center;
+  align-content: center;
+  gap: 28px;
   min-height: calc(100vh - 74px);
   padding: clamp(34px, 6vw, 78px);
   background:
@@ -210,6 +211,40 @@ main { min-height: calc(100vh - 74px); }
   font-weight: 800;
 }
 .hero-info-chips svg { color: #9ecbff; }
+.public-privacy-footer {
+  align-self: end;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: min(920px, 100%);
+  padding: 14px 16px;
+  border: 1px solid rgba(255,255,255,.2);
+  border-radius: 8px;
+  background: rgba(4, 20, 38, .42);
+  color: rgba(255,255,255,.82);
+  backdrop-filter: blur(4px);
+}
+.public-privacy-footer svg { color: #9ecbff; }
+.public-privacy-footer p {
+  max-width: none;
+  margin: 0;
+  color: rgba(255,255,255,.82);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.public-privacy-footer button {
+  border: 0;
+  background: transparent;
+  color: white;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  text-decoration: underline;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.public-privacy-footer button:hover { color: #9ecbff; }
 .hero-panel {
   align-self: end;
   border: 1px solid rgba(255,255,255,.26);
@@ -2075,6 +2110,7 @@ main { min-height: calc(100vh - 74px); }
   .hero {
     min-height: calc(100svh - 56px);
     padding: 30px 18px;
+    gap: 22px;
   }
   .hero h1 { font-size: 42px; }
   .hero-info-chips {
@@ -2082,6 +2118,15 @@ main { min-height: calc(100vh - 74px); }
     grid-template-columns: 1fr;
   }
   .hero-info-chips span { width: fit-content; }
+  .public-privacy-footer {
+    grid-template-columns: auto 1fr;
+    align-items: start;
+    padding: 12px;
+  }
+  .public-privacy-footer button {
+    grid-column: 2;
+    justify-self: start;
+  }
   .import-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .welcome-modal-overlay { align-items: end; padding: 12px; }
   .welcome-modal { max-height: 90vh; border-radius: 10px; }

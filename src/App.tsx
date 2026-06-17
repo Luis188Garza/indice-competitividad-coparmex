@@ -887,7 +887,7 @@ function App() {
 
       <main>
         {!authReady && <SessionRestoreScreen />}
-        {authReady && view === "landing" && <Landing letter={institutionalSettings.presidentLetter} onPortal={() => setView("login")} onRequestAccess={() => setView("requestAccess")} />}
+        {authReady && view === "landing" && <Landing letter={institutionalSettings.presidentLetter} legalDocuments={institutionalSettings.legalDocuments} onPortal={() => setView("login")} onRequestAccess={() => setView("requestAccess")} />}
         {authReady && view === "about" && <AboutIndex onPortal={() => setView("login")} onRequestAccess={() => setView("requestAccess")} />}
         {authReady && view === "login" && <AccessHub onCompany={() => setView("loginEmpresa")} onAdmin={() => setView("loginAdmin")} />}
         {authReady && view === "loginEmpresa" && <CompanyLogin onLogin={loginCompany} />}
@@ -1052,11 +1052,12 @@ function SessionRestoreScreen() {
   );
 }
 
-function Landing({ letter, onPortal, onRequestAccess }: { letter: PresidentLetter; onPortal: () => void; onRequestAccess: () => void }) {
+function Landing({ letter, legalDocuments, onPortal, onRequestAccess }: { letter: PresidentLetter; legalDocuments: LegalDocuments; onPortal: () => void; onRequestAccess: () => void }) {
   const [showWelcome, setShowWelcome] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem("iceWelcomeDismissed") !== "true";
   });
+  const [showPrivacyNotice, setShowPrivacyNotice] = useState(false);
   const dismissWelcome = () => {
     window.localStorage.setItem("iceWelcomeDismissed", "true");
     setShowWelcome(false);
@@ -1082,6 +1083,13 @@ function Landing({ letter, onPortal, onRequestAccess }: { letter: PresidentLette
             <span><CheckCircle2 size={17} /> Recomendaciones puntuales</span>
           </div>
         </div>
+        <footer className="public-privacy-footer">
+          <ShieldCheck size={18} />
+          <p>
+            La información proporcionada será utilizada por COPARMEX Nuevo Laredo únicamente con fines estadísticos, de análisis agregado y fortalecimiento empresarial. COPARMEX podrá generar indicadores generales del sector, sin publicar el nombre, folio o resultados individuales de las empresas participantes.
+          </p>
+          <button type="button" onClick={() => setShowPrivacyNotice(true)}>Aviso de privacidad</button>
+        </footer>
       </section>
       {showWelcome && (
         <div className="welcome-modal-overlay">
@@ -1107,6 +1115,13 @@ function Landing({ letter, onPortal, onRequestAccess }: { letter: PresidentLette
             </div>
           </section>
         </div>
+      )}
+      {showPrivacyNotice && (
+        <DocumentModal
+          title="Aviso de Privacidad"
+          body={legalDocuments.privacyNotice}
+          onClose={() => setShowPrivacyNotice(false)}
+        />
       )}
     </>
   );
