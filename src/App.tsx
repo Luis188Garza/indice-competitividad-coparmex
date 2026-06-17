@@ -1086,7 +1086,7 @@ function Landing({ letter, legalDocuments, onPortal, onRequestAccess }: { letter
         <footer className="public-privacy-footer">
           <ShieldCheck size={18} />
           <p>
-            La información proporcionada será utilizada por COPARMEX Nuevo Laredo únicamente con fines estadísticos, de análisis agregado y fortalecimiento empresarial. COPARMEX podrá generar indicadores generales del sector, sin publicar el nombre, folio o resultados individuales de las empresas participantes.
+            La información proporcionada será utilizada por COPARMEX Nuevo Laredo únicamente con fines estadísticos, de análisis agregado y fortalecimiento empresarial. COPARMEX podrá generar indicadores generales del programa, sin publicar el nombre, folio o resultados individuales de las empresas participantes.
           </p>
           <button type="button" onClick={() => setShowPrivacyNotice(true)}>Aviso de privacidad</button>
         </footer>
