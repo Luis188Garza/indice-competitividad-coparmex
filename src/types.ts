@@ -12,6 +12,7 @@ export interface CompanyProfile {
   city: string;
   state: string;
   employees: string;
+  employeeRange?: string;
   years: string;
   email: string;
   phone: string;

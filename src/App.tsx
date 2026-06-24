@@ -50,7 +50,7 @@ type AdminTab = "panel" | "empresas" | "solicitudes" | "diagnosticos" | "estadis
 type AdminIntent = "import-companies" | "pending-companies" | "priority-report" | "companies-report" | null;
 type Session = { isAuthenticated: boolean; role: "empresa" | "admin" | null; companyId?: string; adminName?: string };
 type AnswerState = Record<string, SelectedDiagnosticOption>;
-type AdminCompany = CompanyProfile & { accessStatus?: string; authUid?: string; folio?: string; rfc?: string; numeroSocio?: string; nombreEmpresa?: string; correo?: string; numeroEmpleados?: number | null; tamanoEmpresa?: string | null; mustChangePassword?: boolean; source?: "firestore" | "mock" };
+type AdminCompany = CompanyProfile & { accessStatus?: string; authUid?: string; folio?: string; rfc?: string; numeroSocio?: string; nombreEmpresa?: string; correo?: string; numeroEmpleados?: number | null; employeeRange?: string | null; tamanoEmpresa?: string | null; mustChangePassword?: boolean; source?: "firestore" | "mock" };
 type AppRoute = { view: View; companyTab?: CompanyTab; adminTab?: AdminTab; privateRole?: "empresa" | "admin" };
 type AdminDiagnosticRecord = { id: string; companyId: string; companyName: string; companySector: string; completedAt: string; result: DiagnosticResult; source: "saved" | "local" };
 type PresidentLetter = { title: string; presidentName: string; presidentRole: string; body: string };
@@ -198,6 +198,40 @@ const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.
 const isValidRfcMoral = (value: string) => /^[A-ZÑ&]{3}\d{6}[A-Z0-9]{3}$/.test(value.trim().toLocaleUpperCase("es-MX"));
 const hasActiveAccount = (company: Record<string, any>) => Boolean(company.accountCreated || company.authUid || String(company.accessStatus || "").toLowerCase() === "active");
 const companySectorOptions = ["Administración y desarrollo empresarial", "Servicios legales", "Logística y operación", "Servicios notariales", "Gestión empresarial", "Comercio", "Industria", "Servicios profesionales", "Tecnología", "No especificado"];
+const employeeRangeOptions = ["1 a 10 empleados", "11 a 50 empleados", "51 a 100 empleados", "101 a 250 empleados", "Más de 250 empleados"];
+
+function rangeFromEmployeeCount(value: unknown) {
+  const count = typeof value === "number" ? value : Number(String(value || "").match(/\d+/)?.[0] ?? 0);
+  if (!count || Number.isNaN(count)) return "";
+  if (count <= 10) return "1 a 10 empleados";
+  if (count <= 50) return "11 a 50 empleados";
+  if (count <= 100) return "51 a 100 empleados";
+  if (count <= 250) return "101 a 250 empleados";
+  return "Más de 250 empleados";
+}
+
+function normalizeEmployeeRange(value: unknown, fallbackCount?: unknown) {
+  const raw = String(value || "").trim();
+  const normalized = raw.toLocaleLowerCase("es-MX");
+  if (!raw || normalized === "no especificado" || normalized === "sin dato" || normalized === "no capturado") return rangeFromEmployeeCount(fallbackCount);
+  const direct = employeeRangeOptions.find((option) => option.toLocaleLowerCase("es-MX") === normalized);
+  if (direct) return direct;
+  if (normalized.includes("más") || normalized.includes("mas") || normalized.includes("250")) return "Más de 250 empleados";
+  if (normalized.includes("101")) return "101 a 250 empleados";
+  if (normalized.includes("51")) return "51 a 100 empleados";
+  if (normalized.includes("11")) return "11 a 50 empleados";
+  if (normalized.includes("1")) return "1 a 10 empleados";
+  return rangeFromEmployeeCount(fallbackCount) || raw;
+}
+
+function companySizeFromEmployeeRange(range: string) {
+  const normalized = range.toLocaleLowerCase("es-MX");
+  if (normalized.includes("1 a 10")) return "Micro";
+  if (normalized.includes("11 a 50")) return "Pequeña";
+  if (normalized.includes("51 a 100") || normalized.includes("101 a 250")) return "Mediana";
+  if (normalized.includes("más") || normalized.includes("mas")) return "Grande";
+  return "";
+}
 
 const demoFolioCompany = {
   id: "1234",
@@ -255,6 +289,7 @@ const initialCompany: CompanyProfile = {
   city: "Nuevo Laredo",
   state: "Tamaulipas",
   employees: "11-30",
+  employeeRange: "11 a 50 empleados",
   years: "3-5 años",
   email: "",
   phone: "",
@@ -274,7 +309,8 @@ function mapCompanyRecord(item: Record<string, any>): AdminCompany {
     sector: String(item.sector || "Sin sector"),
     city: String(item.city || "Nuevo Laredo"),
     state: String(item.state || "Tamaulipas"),
-    employees: String(item.employees || "No especificado"),
+    employees: normalizeEmployeeRange(item.employeeRange || item.employees || item.rangoEmpleados, item.numeroEmpleados) || "No especificado",
+    employeeRange: normalizeEmployeeRange(item.employeeRange || item.employees || item.rangoEmpleados, item.numeroEmpleados) || undefined,
     years: String(item.years || "No especificado"),
     email: String(item.primaryContactEmail || item.email || ""),
     phone: String(item.primaryContactPhone || item.phone || ""),
@@ -318,6 +354,7 @@ function mapAuthorizedCompanyForAccess(rawCompany: Record<string, any>) {
     email: normalizeEmail(rawCompany.primaryContactEmail || mapped.email),
     phone: normalizePhone(rawCompany.primaryContactPhone || mapped.phone),
     sector: mapped.sector,
+    employeeRange: mapped.employeeRange || normalizeEmployeeRange(mapped.employees, mapped.numeroEmpleados) || "",
     city: toUpperText(mapped.city),
     state: toUpperText(mapped.state),
     comments: toUpperText(rawCompany.comments),
@@ -334,6 +371,11 @@ function getCompanyEmployeeCount(company: CompanyProfile | AdminCompany) {
   return values.length ? Math.max(...values) : null;
 }
 
+function getCompanyEmployeeRange(company: CompanyProfile | AdminCompany) {
+  const companyWithRange = company as CompanyProfile & { employeeRange?: string | null; numeroEmpleados?: number | null };
+  return normalizeEmployeeRange(companyWithRange.employeeRange || company.employees, companyWithRange.numeroEmpleados) || "No capturado";
+}
+
 function normalizeCompanySize(value?: string | null) {
   const size = String(value || "").trim();
   if (/^peque.a$/i.test(size)) return "Pequeña";
@@ -342,6 +384,8 @@ function normalizeCompanySize(value?: string | null) {
 
 function getCompanySize(company: CompanyProfile | AdminCompany) {
   if ("tamanoEmpresa" in company && company.tamanoEmpresa) return normalizeCompanySize(company.tamanoEmpresa);
+  const rangeSize = companySizeFromEmployeeRange(getCompanyEmployeeRange(company));
+  if (rangeSize) return rangeSize;
   const employees = getCompanyEmployeeCount(company);
   if (employees === null) return "No calculado";
   if (employees <= 10) return "Micro";
@@ -950,7 +994,15 @@ function App() {
           />
         )}
         {authReady && view === "stats" && session.role === "admin" && <RegionalStats stats={stats} />}
-        {authReady && view === "detail" && session.role === "admin" && <CompanyDetail company={selectedCompany} result={showcaseDiagnostic} onBack={() => setView("admin")} onPdf={simulatePdf} />}
+        {authReady && view === "detail" && session.role === "admin" && (
+          <CompanyDetail
+            company={selectedCompany}
+            result={showcaseDiagnostic}
+            onBack={() => setView("admin")}
+            onPdf={simulatePdf}
+            onCompanyUpdated={(updates) => setSelectedAdminCompany((current) => current ? { ...current, ...updates } : current)}
+          />
+        )}
       </main>
     </div>
   );
@@ -1185,6 +1237,8 @@ function AccessRequestScreen({ legalDocuments, onBack, onLogin }: { legalDocumen
   const [form, setForm] = useState({
     folio: "",
     email: "",
+    sector: "",
+    employeeRange: "",
     password: "",
     confirmPassword: "",
     privacyAccepted: false,
@@ -1249,6 +1303,11 @@ function AccessRequestScreen({ legalDocuments, onBack, onLogin }: { legalDocumen
       const companyData = mapAuthorizedCompanyForAccess(rawCompany as Record<string, any>);
       setVerifiedCompany({ ...companyData, email });
       setVerifiedRawCompany(rawCompany as Record<string, any>);
+      setForm((current) => ({
+        ...current,
+        sector: companyData.sector && companyData.sector !== "Sin sector" ? companyData.sector : "",
+        employeeRange: companyData.employeeRange || "",
+      }));
       if (hasActiveAccount(rawCompany as Record<string, any>)) {
         setAccountExists(true);
         return;
@@ -1262,6 +1321,11 @@ function AccessRequestScreen({ legalDocuments, onBack, onLogin }: { legalDocumen
           const companyData = mapAuthorizedCompanyForAccess(demoFolioCompany);
           setVerifiedCompany({ ...companyData, email });
           setVerifiedRawCompany(demoFolioCompany);
+          setForm((current) => ({
+            ...current,
+            sector: companyData.sector,
+            employeeRange: companyData.employeeRange || "",
+          }));
           setSuccess("Empresa verificada. Confirma los datos y crea tu acceso.");
           return;
         }
@@ -1290,6 +1354,11 @@ function AccessRequestScreen({ legalDocuments, onBack, onLogin }: { legalDocumen
       return;
     }
 
+    if (!form.sector || !form.employeeRange) {
+      setError("Selecciona el sector o giro y el rango de empleados.");
+      return;
+    }
+
     if (form.password.length < 8) {
       setError("La contraseña debe tener al menos 8 caracteres.");
       return;
@@ -1315,6 +1384,10 @@ function AccessRequestScreen({ legalDocuments, onBack, onLogin }: { legalDocumen
         id: companyId,
         folio: normalizedFolio,
         email,
+        sector: form.sector,
+        employees: form.employeeRange,
+        employeeRange: form.employeeRange,
+        tamanoEmpresa: companySizeFromEmployeeRange(form.employeeRange),
         primaryContactEmail: normalizeEmail(verifiedRawCompany.primaryContactEmail || email),
         primaryContactName: toUpperText(verifiedRawCompany.primaryContactName || verifiedCompany.representative),
         primaryContactPhone: normalizePhone(verifiedRawCompany.primaryContactPhone || verifiedCompany.phone),
@@ -1345,7 +1418,7 @@ function AccessRequestScreen({ legalDocuments, onBack, onLogin }: { legalDocumen
       }
 
       setSuccess("Tu acceso fue creado correctamente. Ya puedes iniciar sesión.");
-      setForm({ folio: "", email: "", password: "", confirmPassword: "", privacyAccepted: false, termsAccepted: false });
+      setForm({ folio: "", email: "", sector: "", employeeRange: "", password: "", confirmPassword: "", privacyAccepted: false, termsAccepted: false });
       setVerifiedCompany(null);
       setVerifiedRawCompany(null);
       await firebaseLogout();
@@ -1434,6 +1507,23 @@ function AccessRequestScreen({ legalDocuments, onBack, onLogin }: { legalDocumen
         {verifiedCompany && !accountExists && (
           <div className="access-step">
             <h3>Crea tu acceso</h3>
+            <div className="form-grid">
+              <Select
+                label="Sector o giro"
+                value={form.sector}
+                onChange={(value) => update("sector", value)}
+                options={companySectorOptions.filter((option) => option !== "No especificado")}
+                placeholder="Selecciona el sector o giro"
+              />
+              <Select
+                label="Rango de empleados"
+                value={form.employeeRange}
+                onChange={(value) => update("employeeRange", value)}
+                options={employeeRangeOptions}
+                placeholder="Selecciona el rango de empleados"
+              />
+            </div>
+            <p className="field-hint">Estos datos se utilizan únicamente para clasificar indicadores estadísticos agregados del programa ICE.</p>
             <PasswordField label="Nueva contraseña" value={form.password} onChange={(value) => update("password", value)} />
             <PasswordField label="Confirmar contraseña" value={form.confirmPassword} onChange={(value) => update("confirmPassword", value)} />
             <p className="field-hint">La contraseña debe tener al menos 8 caracteres.</p>
@@ -2152,6 +2242,7 @@ function CompaniesTable({ intent, diagnostics: adminDiagnostics, setSelectedComp
     name: "",
     rfc: "",
     sector: "Administración y desarrollo empresarial",
+    employeeRange: "",
     representative: "",
     city: "Nuevo Laredo",
     state: "Tamaulipas",
@@ -2220,7 +2311,7 @@ function CompaniesTable({ intent, diagnostics: adminDiagnostics, setSelectedComp
         empresa: [left.company.name, right.company.name],
         porcentaje: [left.diagnostic?.result.percentage ?? -1, right.diagnostic?.result.percentage ?? -1],
         nivel: [leftLevel, rightLevel],
-        empleados: [getCompanyEmployeeCount(left.company) ?? -1, getCompanyEmployeeCount(right.company) ?? -1],
+        empleados: [getCompanyEmployeeRange(left.company), getCompanyEmployeeRange(right.company)],
         tamano: [getCompanySize(left.company), getCompanySize(right.company)],
         observaciones: [left.observations, right.observations],
         autodiagnostico: [left.diagnostic ? 1 : 0, right.diagnostic ? 1 : 0],
@@ -2287,6 +2378,11 @@ function CompaniesTable({ intent, diagnostics: adminDiagnostics, setSelectedComp
       return;
     }
 
+    if (!newCompany.employeeRange) {
+      setCompanySaveError("Selecciona el rango de empleados.");
+      return;
+    }
+
     if (!isValidEmail(email)) {
       setCompanySaveError("Captura un correo válido.");
       return;
@@ -2313,6 +2409,9 @@ function CompaniesTable({ intent, diagnostics: adminDiagnostics, setSelectedComp
         name,
         rfc,
         sector: newCompany.sector,
+        employees: newCompany.employeeRange,
+        employeeRange: newCompany.employeeRange,
+        tamanoEmpresa: companySizeFromEmployeeRange(newCompany.employeeRange),
         representative: newCompany.representative,
         primaryContactName: newCompany.representative,
         primaryContactEmail: email,
@@ -2335,12 +2434,13 @@ function CompaniesTable({ intent, diagnostics: adminDiagnostics, setSelectedComp
         folio,
         name,
         sector: newCompany.sector,
+        employeeRange: newCompany.employeeRange,
         representative: newCompany.representative,
         city: newCompany.city,
         state: newCompany.state,
         email,
         phone,
-        employees: "No especificado",
+        employees: newCompany.employeeRange || "No especificado",
         years: "No especificado",
         registeredAt: new Date().toISOString().slice(0, 10),
         followUpStatus: newCompany.followUpStatus as CompanyProfile["followUpStatus"],
@@ -2356,6 +2456,7 @@ function CompaniesTable({ intent, diagnostics: adminDiagnostics, setSelectedComp
         name: "",
         rfc: "",
         sector: "Administración y desarrollo empresarial",
+        employeeRange: "",
         representative: "",
         city: "Nuevo Laredo",
         state: "Tamaulipas",
@@ -2402,6 +2503,13 @@ function CompaniesTable({ intent, diagnostics: adminDiagnostics, setSelectedComp
               onChange={(value) => updateNewCompany("sector", value)}
               options={["Administración y desarrollo empresarial", "Servicios legales", "Logística y operación", "Servicios notariales", "Gestión empresarial", "Comercio", "Industria", "Servicios profesionales", "Tecnología"]}
             />
+            <Select
+              label="Rango de empleados"
+              value={newCompany.employeeRange}
+              onChange={(value) => updateNewCompany("employeeRange", value)}
+              options={employeeRangeOptions}
+              placeholder="Selecciona el rango de empleados"
+            />
             <Field label="Representante" value={newCompany.representative} onChange={(value) => updateNewCompany("representative", value)} />
             <Field label="Correo autorizado" value={newCompany.email} onChange={(value) => updateNewCompany("email", value)} transform="none" type="email" />
             <Field label="Teléfono" value={newCompany.phone} onChange={(value) => updateNewCompany("phone", value)} format="phone" maxLength={10} />
@@ -2431,7 +2539,7 @@ function CompaniesTable({ intent, diagnostics: adminDiagnostics, setSelectedComp
           <span>Sector</span>
           <span>Representante</span>
           <span>Correo</span>
-          <span>Número de empleados</span>
+          <span>Rango de empleados</span>
           <span>Tamaño empresarial</span>
           <span>Autodiagnóstico</span>
           <span>Nivel</span>
@@ -2447,7 +2555,7 @@ function CompaniesTable({ intent, diagnostics: adminDiagnostics, setSelectedComp
             <span>{company.sector || "Sin sector registrado"}</span>
             <span>{company.representative || "Sin representante registrado"}</span>
             <span>{company.email || "Sin correo"}</span>
-            <span>{getCompanyEmployeeCount(company) ?? "Sin dato"}</span>
+            <span>{getCompanyEmployeeRange(company)}</span>
             <span>{getCompanySize(company) === "No calculado" ? "Sin clasificación" : getCompanySize(company)}</span>
             <span><span className={`report-status ${diagnostic ? "yes" : "no"}`}>{diagnostic ? "Sí" : "No"}</span></span>
             <span>{diagnostic?.result?.maturity.title ?? "Pendiente"}</span>
@@ -2486,7 +2594,7 @@ function CompaniesTable({ intent, diagnostics: adminDiagnostics, setSelectedComp
               <p><span>Sector</span><strong>{company.sector || "Sin sector registrado"}</strong></p>
               <p><span>Representante</span><strong>{company.representative || "Sin representante registrado"}</strong></p>
               <p><span>Correo</span><strong>{company.email || "Sin correo"}</strong></p>
-              <p><span>Número de empleados</span><strong>{getCompanyEmployeeCount(company) ?? "Sin dato"}</strong></p>
+              <p><span>Rango de empleados</span><strong>{getCompanyEmployeeRange(company)}</strong></p>
               <p><span>Tamaño empresarial</span><strong>{getCompanySize(company) === "No calculado" ? "Sin clasificación" : getCompanySize(company)}</strong></p>
               <p><span>Autodiagnóstico</span><span className={`report-status ${diagnostic ? "yes" : "no"}`}>{diagnostic ? "Sí" : "No"}</span></p>
               <p><span>Nivel</span><strong>{diagnostic?.result?.maturity.title ?? "Pendiente"}</strong></p>
@@ -2583,6 +2691,8 @@ function CompanyImportPanel({ existingCompanies, onImported }: { existingCompani
         allowedAccessEmails: row.correo ? [row.correo] : [],
         rfc: row.rfc,
         numeroEmpleados: row.numeroEmpleados,
+        employees: normalizeEmployeeRange("", row.numeroEmpleados) || "",
+        employeeRange: normalizeEmployeeRange("", row.numeroEmpleados) || "",
         tamanoEmpresa: row.tamanoEmpresa,
         tamanoEmpresaFuente: row.tamanoEmpresaFuente,
         consecutivoImportacion: row.consecutivoImportacion,
@@ -2730,12 +2840,13 @@ function ActionMenu({ companyId, openMenu, setOpenMenu, onDetail, onReport, onOb
   );
 }
 
-function CompanyDetail({ company, result, onBack, onPdf }: { company: CompanyProfile; result: DiagnosticResult | null; onBack: () => void; onPdf: () => void }) {
+function CompanyDetail({ company, result, onBack, onPdf, onCompanyUpdated }: { company: CompanyProfile; result: DiagnosticResult | null; onBack: () => void; onPdf: () => void; onCompanyUpdated?: (updates: Partial<CompanyProfile>) => void }) {
   return (
     <section className="page">
       <button className="back-link" onClick={onBack}>← Volver a empresas</button>
       {result ? <ResultOverview company={company} result={result} /> : <SectionTitle title={company.name} subtitle="Esta empresa aún no tiene un autodiagnóstico guardado." />}
-      {result ? <ProfileCard company={company} result={result} hideFollowUp /> : <div className="card prepared"><ClipboardList size={30} /><h2>Autodiagnóstico pendiente</h2><p>Los resultados y recomendaciones puntuales aparecerán cuando la empresa complete su autodiagnóstico.</p></div>}
+      <ProfileCard company={company} result={result} hideFollowUp editable onUpdated={onCompanyUpdated} />
+      {!result && <div className="card prepared"><ClipboardList size={30} /><h2>Autodiagnóstico pendiente</h2><p>Los resultados y recomendaciones puntuales aparecerán cuando la empresa complete su autodiagnóstico.</p></div>}
       {result && <ModuleBars scores={result.moduleScores} />}
       {result && <ResponseBankInsights result={result} title="Lectura institucional ICE" description="Esta lectura permite identificar secciones críticas, riesgos y posibles líneas de atención para la empresa." />}
       <TwoColumns left={<ObservationList companyId={company.id} companyName={company.name} authorRole="admin" authorName="Administrador COPARMEX" />} right={<ActivityPanel companyId={company.id} />} />
@@ -3162,8 +3273,16 @@ function PasswordField({ label, value, onChange }: { label: string; value: strin
   );
 }
 
-function Select({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: string[] }) {
-  return <label className="field"><span>{label}</span><select value={value} onChange={(event) => onChange(event.target.value)}>{options.map((option) => <option key={option}>{option}</option>)}</select></label>;
+function Select({ label, value, onChange, options, placeholder }: { label: string; value: string; onChange: (value: string) => void; options: string[]; placeholder?: string }) {
+  return (
+    <label className="field">
+      <span>{label}</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)}>
+        {placeholder && <option value="">{placeholder}</option>}
+        {options.map((option) => <option key={option} value={option}>{option}</option>)}
+      </select>
+    </label>
+  );
 }
 
 function Badge({ tone, children }: { tone: string; children: React.ReactNode }) {
@@ -3395,6 +3514,7 @@ function ProfileCard({ company, result, hideFollowUp = false, editable = false, 
   const [editing, setEditing] = useState(false);
   const [rfc, setRfc] = useState(company.rfc ?? "");
   const [sector, setSector] = useState(company.sector);
+  const [employeeRange, setEmployeeRange] = useState(getCompanyEmployeeRange(company) === "No capturado" ? "" : getCompanyEmployeeRange(company));
   const [phone, setPhone] = useState(company.phone);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -3404,12 +3524,14 @@ function ProfileCard({ company, result, hideFollowUp = false, editable = false, 
     if (editing) return;
     setRfc(company.rfc ?? "");
     setSector(company.sector);
+    setEmployeeRange(getCompanyEmployeeRange(company) === "No capturado" ? "" : getCompanyEmployeeRange(company));
     setPhone(company.phone);
-  }, [company.rfc, company.sector, company.phone, editing]);
+  }, [company, company.rfc, company.sector, company.phone, editing]);
 
   const cancelEditing = () => {
     setRfc(company.rfc ?? "");
     setSector(company.sector);
+    setEmployeeRange(getCompanyEmployeeRange(company) === "No capturado" ? "" : getCompanyEmployeeRange(company));
     setPhone(company.phone);
     setError("");
     setMessage("");
@@ -3430,16 +3552,23 @@ function ProfileCard({ company, result, hideFollowUp = false, editable = false, 
       setError("El teléfono debe contener 10 dígitos.");
       return;
     }
+    if (!employeeRange) {
+      setError("Selecciona el rango de empleados.");
+      return;
+    }
 
     setSaving(true);
     try {
       await updateCompany(company.id, {
         rfc: normalizedRfc,
         sector,
+        employees: employeeRange,
+        employeeRange,
+        tamanoEmpresa: companySizeFromEmployeeRange(employeeRange),
         phone: normalizedPhone,
         primaryContactPhone: normalizedPhone,
       });
-      onUpdated?.({ rfc: normalizedRfc, sector, phone: normalizedPhone });
+      onUpdated?.({ rfc: normalizedRfc, sector, employees: employeeRange, employeeRange, phone: normalizedPhone });
       setMessage("Los datos del perfil se actualizaron correctamente.");
       setEditing(false);
     } catch (reason) {
@@ -3469,6 +3598,7 @@ function ProfileCard({ company, result, hideFollowUp = false, editable = false, 
           <div className="form-grid">
             <Field label="RFC" value={rfc} onChange={setRfc} format="rfcMoral" maxLength={12} />
             <Select label="Sector" value={sector} onChange={setSector} options={companySectorOptions} />
+            <Select label="Rango de empleados" value={employeeRange} onChange={setEmployeeRange} options={employeeRangeOptions} placeholder="Selecciona el rango de empleados" />
             <Field label="Teléfono" value={phone} onChange={setPhone} format="phone" maxLength={10} />
           </div>
           <p className="muted">Puedes actualizar únicamente estos datos operativos. Los demás datos permanecen protegidos.</p>
@@ -3485,6 +3615,7 @@ function ProfileCard({ company, result, hideFollowUp = false, editable = false, 
             <ProfileField label="Folio" value={getCompanyFolio(company)} />
             <ProfileField label="RFC" value={company.rfc} />
             <ProfileField label="Sector" value={company.sector} />
+            <ProfileField label="Rango de empleados" value={getCompanyEmployeeRange(company)} />
             <ProfileField label="Registro" value={formatDate(company.registeredAt)} />
           </section>
           <section className="profile-block">
@@ -3538,6 +3669,7 @@ type AdministrativeReportRow = {
   company: AdminCompany;
   folio: string;
   employees: number | null;
+  employeeRange: string;
   size: string;
   hasDiagnostic: boolean;
   level: string;
@@ -3600,6 +3732,7 @@ function ReportsPanelV3({ intent, diagnostics: adminDiagnostics }: { intent: Adm
       company,
       folio: getCompanyFolio(company),
       employees: getCompanyEmployeeCount(company),
+      employeeRange: getCompanyEmployeeRange(company),
       size: getCompanySize(company),
       hasDiagnostic: Boolean(diagnostic && percentage !== null),
       level: compliance?.label ?? "Pendiente",
@@ -3627,7 +3760,7 @@ function ReportsPanelV3({ intent, diagnostics: adminDiagnostics }: { intent: Adm
         Folio: [left.folio, right.folio],
         Empresa: [left.company.name, right.company.name],
         Sector: [left.company.sector, right.company.sector],
-        "Número de empleados": [left.employees ?? -1, right.employees ?? -1],
+        "Rango de empleados": [left.employeeRange, right.employeeRange],
         "Tamaño empresa": [left.size, right.size],
         Autodiagnóstico: [left.hasDiagnostic ? 1 : 0, right.hasDiagnostic ? 1 : 0],
         Nivel: [left.level, right.level],
@@ -3650,7 +3783,7 @@ function ReportsPanelV3({ intent, diagnostics: adminDiagnostics }: { intent: Adm
     Representante: row.company.representative || "Sin dato",
     Correo: row.company.email || "Sin dato",
     Sector: row.company.sector || "Sin dato",
-    "Número de empleados": row.employees ?? "Sin dato",
+    "Rango de empleados": row.employeeRange,
     "Tamaño empresa": row.size === "No calculado" ? "Sin dato" : row.size,
     Autodiagnóstico: row.hasDiagnostic ? "Sí" : "No",
     Nivel: row.level,
@@ -3663,7 +3796,7 @@ function ReportsPanelV3({ intent, diagnostics: adminDiagnostics }: { intent: Adm
     Representante: row.company.representative || "Sin dato",
     Correo: row.company.email || "Sin dato",
     Sector: row.company.sector || "Sin dato",
-    "Número de empleados": row.employees ?? "Sin dato",
+    "Rango de empleados": row.employeeRange,
     "Tamaño empresa": row.size === "No calculado" ? "Sin dato" : row.size,
     Autodiagnóstico: row.hasDiagnostic ? "Sí" : "No",
     Nivel: row.level,
@@ -3731,7 +3864,7 @@ function ReportsPanelV3({ intent, diagnostics: adminDiagnostics }: { intent: Adm
             <Select label="Sector" value={sectorFilter} onChange={setSectorFilter} options={["Todos", ...sectors]} />
             <Select label="Tamaño" value={sizeFilter} onChange={setSizeFilter} options={["Todos", "Micro", "Pequeña", "Mediana", "Grande", "Sin dato"]} />
             <Select label="Observaciones" value={observationFilter} onChange={setObservationFilter} options={["Todas", "Con observaciones", "Sin observaciones"]} />
-            <Select label="Ordenar por" value={sortBy} onChange={setSortBy} options={["Empresa", "Folio", "Sector", "Número de empleados", "Tamaño empresa", "Autodiagnóstico", "Nivel", "Porcentaje", "Observaciones"]} />
+            <Select label="Ordenar por" value={sortBy} onChange={setSortBy} options={["Empresa", "Folio", "Sector", "Rango de empleados", "Tamaño empresa", "Autodiagnóstico", "Nivel", "Porcentaje", "Observaciones"]} />
           </div>
           <p className="admin-list-count">{visibleRows.length} empresas visibles de {baseRows.length}</p>
           <AdministrativeReportTable rows={visibleRows} priority={reportType === "priority"} />
@@ -3746,9 +3879,9 @@ function AdministrativeReportTable({ rows, priority }: { rows: AdministrativeRep
     <>
       <div className="report-table-wrap">
         <table className={`report-table ${priority ? "priority" : ""}`}>
-          <thead><tr><th>Folio</th><th>Empresa</th><th>Representante</th><th>Correo</th><th>Sector</th><th>Empleados</th><th>Tamaño</th><th>Autodiagnóstico</th><th>Nivel</th><th>%</th>{priority ? <th>Motivo de atención</th> : <th>Semáforo</th>}<th>Observaciones</th></tr></thead>
+          <thead><tr><th>Folio</th><th>Empresa</th><th>Representante</th><th>Correo</th><th>Sector</th><th>Rango de empleados</th><th>Tamaño</th><th>Autodiagnóstico</th><th>Nivel</th><th>%</th>{priority ? <th>Motivo de atención</th> : <th>Semáforo</th>}<th>Observaciones</th></tr></thead>
           <tbody>{rows.map((row) => <tr key={row.company.id}>
-            <td>{row.folio || "Sin dato"}</td><td>{row.company.name || "Sin dato"}</td><td>{row.company.representative || "Sin dato"}</td><td>{row.company.email || "Sin dato"}</td><td>{row.company.sector || "Sin dato"}</td><td>{row.employees ?? "Sin dato"}</td>
+            <td>{row.folio || "Sin dato"}</td><td>{row.company.name || "Sin dato"}</td><td>{row.company.representative || "Sin dato"}</td><td>{row.company.email || "Sin dato"}</td><td>{row.company.sector || "Sin dato"}</td><td>{row.employeeRange || "Sin dato"}</td>
             <td><span className="report-size">{row.size === "No calculado" ? "Sin dato" : row.size}</span></td>
             <td><span className={`report-status ${row.hasDiagnostic ? "yes" : "no"}`}>{row.hasDiagnostic ? "Sí" : "No"}</span></td>
             <td><span className={`report-level ${getReportLevelTone(row.level)}`}>{row.level}</span></td><td>{row.percentage === null ? "Sin dato" : `${row.percentage}%`}</td>
@@ -3767,6 +3900,7 @@ function AdministrativeReportTable({ rows, priority }: { rows: AdministrativeRep
             <div className="report-mobile-card-meta">
               <p><span>Autodiagnóstico</span><b className={`report-status ${row.hasDiagnostic ? "yes" : "no"}`}>{row.hasDiagnostic ? "Sí" : "No"}</b></p>
               <p><span>Resultado</span><strong>{row.percentage === null ? "Sin resultado" : `${row.percentage}%`}</strong></p>
+              <p><span>Rango de empleados</span><strong>{row.employeeRange || "Sin dato"}</strong></p>
               <p><span>Tamaño</span><strong>{row.size === "No calculado" ? "Sin dato" : row.size}</strong></p>
               <p><span>Observaciones</span><strong>{row.observations}</strong></p>
               <p className="wide"><span>Representante</span><strong>{row.company.representative || "Sin dato"}</strong></p>
@@ -3817,6 +3951,7 @@ function ReportsPanelV2({ diagnostics: adminDiagnostics }: { stats: any; diagnos
       diagnostic,
       folio: getCompanyFolio(company),
       employees: getCompanyEmployeeCount(company),
+      employeeRange: getCompanyEmployeeRange(company),
       size: getCompanySize(company),
       level: level?.label ?? "Pendiente",
       percentage: diagnostic?.result.percentage ?? null,
@@ -3866,7 +4001,7 @@ function ReportsPanelV2({ diagnostics: adminDiagnostics }: { stats: any; diagnos
     Representante: row.company.representative,
     Correo: row.company.email,
     Sector: row.company.sector,
-    Empleados: row.employees ?? "",
+    "Rango de empleados": row.employeeRange,
     "Tamaño estimado": row.size,
     Nivel: row.level,
     Porcentaje: row.percentage ?? "",
@@ -3981,6 +4116,7 @@ function ReportsPanel({ stats, diagnostics: adminDiagnostics }: { stats: any; di
       diagnostic,
       folio: getCompanyFolio(company),
       employees: getCompanyEmployeeCount(company),
+      employeeRange: getCompanyEmployeeRange(company),
       size: getCompanySize(company),
       level: level?.label ?? "Pendiente",
       percentage: diagnostic?.result.percentage ?? null,
@@ -4000,7 +4136,7 @@ function ReportsPanel({ stats, diagnostics: adminDiagnostics }: { stats: any; di
     Representante: row.company.representative,
     Correo: row.company.email,
     Sector: row.company.sector,
-    Empleados: row.employees ?? "",
+    "Rango de empleados": row.employeeRange,
     "Tamaño estimado": row.size,
     Nivel: row.level,
     Porcentaje: row.percentage ?? "",
@@ -4044,12 +4180,12 @@ function ReportsPanel({ stats, diagnostics: adminDiagnostics }: { stats: any; di
   );
 }
 
-function ReportCompaniesTable({ rows }: { rows: Array<{ company: CompanyProfile; folio: string; employees: number | null; size: string; level: string; percentage: number | null; observations: number }> }) {
+function ReportCompaniesTable({ rows }: { rows: Array<{ company: CompanyProfile; folio: string; employeeRange: string; size: string; level: string; percentage: number | null; observations: number }> }) {
   return (
     <div className="report-table-wrap">
       <table className="report-table">
-        <thead><tr><th>Folio</th><th>Empresa</th><th>Representante</th><th>Correo</th><th>Sector</th><th>Empleados</th><th>Tamaño</th><th>Nivel</th><th>%</th><th>Observaciones</th><th>Seguimiento</th></tr></thead>
-        <tbody>{rows.map((row) => <tr key={row.company.id}><td>{row.folio}</td><td>{row.company.name}</td><td>{row.company.representative}</td><td>{row.company.email}</td><td>{row.company.sector}</td><td>{row.employees ?? "-"}</td><td>{row.size}</td><td><span className={`report-level ${getReportLevelTone(row.level)}`}>{row.level}</span></td><td>{row.percentage ?? "-"}{row.percentage !== null ? "%" : ""}</td><td>{row.observations}</td><td>{row.company.followUpStatus}</td></tr>)}</tbody>
+        <thead><tr><th>Folio</th><th>Empresa</th><th>Representante</th><th>Correo</th><th>Sector</th><th>Rango de empleados</th><th>Tamaño</th><th>Nivel</th><th>%</th><th>Observaciones</th><th>Seguimiento</th></tr></thead>
+        <tbody>{rows.map((row) => <tr key={row.company.id}><td>{row.folio}</td><td>{row.company.name}</td><td>{row.company.representative}</td><td>{row.company.email}</td><td>{row.company.sector}</td><td>{row.employeeRange || "Sin dato"}</td><td>{row.size}</td><td><span className={`report-level ${getReportLevelTone(row.level)}`}>{row.level}</span></td><td>{row.percentage ?? "-"}{row.percentage !== null ? "%" : ""}</td><td>{row.observations}</td><td>{row.company.followUpStatus}</td></tr>)}</tbody>
       </table>
     </div>
   );
