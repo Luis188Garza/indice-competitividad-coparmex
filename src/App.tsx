@@ -197,40 +197,90 @@ const normalizeRfcMoral = (value: unknown) => toUpperText(value).replace(/[^A-Z0
 const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 const isValidRfcMoral = (value: string) => /^[A-ZÑ&]{3}\d{6}[A-Z0-9]{3}$/.test(value.trim().toLocaleUpperCase("es-MX"));
 const hasActiveAccount = (company: Record<string, any>) => Boolean(company.accountCreated || company.authUid || String(company.accessStatus || "").toLowerCase() === "active");
-const companySectorOptions = ["Administración y desarrollo empresarial", "Servicios legales", "Logística y operación", "Servicios notariales", "Gestión empresarial", "Comercio", "Industria", "Servicios profesionales", "Tecnología", "No especificado"];
-const employeeRangeOptions = ["1 a 10 empleados", "11 a 50 empleados", "51 a 100 empleados", "101 a 250 empleados", "Más de 250 empleados"];
+const companySectorOptions = ["Servicios", "Comercio", "Industria"];
+const employeeRangeOptions = ["0-10", "11-30", "11-50", "31-100", "51-100", "51-250", "100+", "250+"];
+type CompanySize = "Micro" | "Pequeña" | "Mediana" | "Grande";
+
+function normalizeComparable(value: unknown) {
+  return String(value || "")
+    .trim()
+    .toLocaleLowerCase("es-MX")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+function getSectorClassificationKey(sector: unknown) {
+  const normalized = normalizeComparable(sector);
+  if (!normalized || normalized === "no especificado" || normalized === "sin sector") return "";
+  if (normalized.includes("industria")) return "industria";
+  if (normalized.includes("agente") && normalized.includes("aduanal")) return "agentes";
+  if (normalized.includes("transporte") || normalized.includes("logistica") || normalized.includes("logistica y operacion")) return "transporte";
+  if (normalized.includes("construccion") || normalized.includes("construcci")) return "construccion";
+  if (normalized.includes("inmobiliaria")) return "inmobiliaria";
+  if (normalized.includes("comercio")) return "comercio";
+  if (normalized.includes("servicio")) return "servicio";
+  return "";
+}
 
 function rangeFromEmployeeCount(value: unknown) {
   const count = typeof value === "number" ? value : Number(String(value || "").match(/\d+/)?.[0] ?? 0);
   if (!count || Number.isNaN(count)) return "";
-  if (count <= 10) return "1 a 10 empleados";
-  if (count <= 50) return "11 a 50 empleados";
-  if (count <= 100) return "51 a 100 empleados";
-  if (count <= 250) return "101 a 250 empleados";
-  return "Más de 250 empleados";
+  if (count <= 10) return "0-10";
+  if (count <= 30) return "11-30";
+  if (count <= 50) return "11-50";
+  if (count <= 100) return "51-100";
+  if (count <= 250) return "51-250";
+  return "250+";
 }
 
 function normalizeEmployeeRange(value: unknown, fallbackCount?: unknown) {
   const raw = String(value || "").trim();
-  const normalized = raw.toLocaleLowerCase("es-MX");
+  const normalized = normalizeComparable(raw.replace(/^nov(?=[-\s])/i, "11"));
   if (!raw || normalized === "no especificado" || normalized === "sin dato" || normalized === "no capturado") return rangeFromEmployeeCount(fallbackCount);
-  const direct = employeeRangeOptions.find((option) => option.toLocaleLowerCase("es-MX") === normalized);
+  const compact = normalized
+    .replace(/\s*a\s*/g, "-")
+    .replace(/\s*\+\s*/g, "+")
+    .replace(/\s*-\s*/g, "-")
+    .replace(/empleados?/g, "")
+    .trim();
+  const direct = employeeRangeOptions.find((option) => normalizeComparable(option) === compact);
   if (direct) return direct;
-  if (normalized.includes("más") || normalized.includes("mas") || normalized.includes("250")) return "Más de 250 empleados";
-  if (normalized.includes("101")) return "101 a 250 empleados";
-  if (normalized.includes("51")) return "51 a 100 empleados";
-  if (normalized.includes("11")) return "11 a 50 empleados";
-  if (normalized.includes("1")) return "1 a 10 empleados";
+  if (compact.includes("250")) return "250+";
+  if (compact.includes("100+")) return "100+";
+  if (compact.includes("51-250")) return "51-250";
+  if (compact.includes("51-100")) return "51-100";
+  if (compact.includes("31-100")) return "31-100";
+  if (compact.includes("11-50")) return "11-50";
+  if (compact.includes("11-30")) return "11-30";
+  if (compact.includes("0-10") || compact.includes("1-10")) return "0-10";
   return rangeFromEmployeeCount(fallbackCount) || raw;
 }
 
-function companySizeFromEmployeeRange(range: string) {
-  const normalized = range.toLocaleLowerCase("es-MX");
-  if (normalized.includes("1 a 10")) return "Micro";
-  if (normalized.includes("11 a 50")) return "Pequeña";
-  if (normalized.includes("51 a 100") || normalized.includes("101 a 250")) return "Mediana";
-  if (normalized.includes("más") || normalized.includes("mas")) return "Grande";
-  return "";
+const companySizeMatrix: Record<string, Partial<Record<string, CompanySize>>> = {
+  industria: { "0-10": "Micro", "11-50": "Pequeña", "51-250": "Mediana", "250+": "Grande" },
+  agentes: { "0-10": "Micro", "11-30": "Pequeña", "31-100": "Mediana", "100+": "Grande" },
+  transporte: { "0-10": "Micro", "11-30": "Pequeña", "31-100": "Mediana", "100+": "Grande" },
+  construccion: { "0-10": "Micro", "11-30": "Pequeña", "31-100": "Mediana", "100+": "Grande" },
+  inmobiliaria: { "0-10": "Mediana", "11-30": "Grande" },
+  comercio: { "0-10": "Micro", "11-30": "Pequeña", "31-100": "Mediana", "100+": "Grande" },
+  servicio: { "0-10": "Micro", "11-50": "Pequeña", "51-100": "Mediana", "100+": "Grande" },
+};
+
+function calculateCompanySize(sector: unknown, employeeRange: unknown) {
+  const sectorKey = getSectorClassificationKey(sector);
+  const range = normalizeEmployeeRange(employeeRange);
+  if (!sectorKey || !range) return "";
+  return companySizeMatrix[sectorKey]?.[range] ?? "";
+}
+
+function getEmployeeRangeOptionsForSector(sector: unknown) {
+  const sectorKey = getSectorClassificationKey(sector);
+  return sectorKey ? Object.keys(companySizeMatrix[sectorKey] ?? {}) : employeeRangeOptions;
+}
+
+function withCurrentOption(options: string[], currentValue: string) {
+  return currentValue && !options.includes(currentValue) ? [currentValue, ...options] : options;
 }
 
 const demoFolioCompany = {
@@ -289,7 +339,7 @@ const initialCompany: CompanyProfile = {
   city: "Nuevo Laredo",
   state: "Tamaulipas",
   employees: "11-30",
-  employeeRange: "11 a 50 empleados",
+  employeeRange: "11-50",
   years: "3-5 años",
   email: "",
   phone: "",
@@ -325,7 +375,7 @@ function mapCompanyRecord(item: Record<string, any>): AdminCompany {
     nombreEmpresa: item.nombreEmpresa ? String(item.nombreEmpresa) : undefined,
     correo: item.correo ? String(item.correo) : undefined,
     numeroEmpleados: typeof item.numeroEmpleados === "number" ? item.numeroEmpleados : null,
-    tamanoEmpresa: item.tamanoEmpresa ? normalizeCompanySize(String(item.tamanoEmpresa)) : undefined,
+    tamanoEmpresa: item.tamanoEmpresa || item["tamañoEmpresa"] ? normalizeCompanySize(String(item.tamanoEmpresa || item["tamañoEmpresa"])) : undefined,
     mustChangePassword: Boolean(item.mustChangePassword),
     source: "firestore",
   };
@@ -384,14 +434,9 @@ function normalizeCompanySize(value?: string | null) {
 
 function getCompanySize(company: CompanyProfile | AdminCompany) {
   if ("tamanoEmpresa" in company && company.tamanoEmpresa) return normalizeCompanySize(company.tamanoEmpresa);
-  const rangeSize = companySizeFromEmployeeRange(getCompanyEmployeeRange(company));
+  const rangeSize = calculateCompanySize(company.sector, getCompanyEmployeeRange(company));
   if (rangeSize) return rangeSize;
-  const employees = getCompanyEmployeeCount(company);
-  if (employees === null) return "No calculado";
-  if (employees <= 10) return "Micro";
-  if (employees <= 50) return "Pequeña";
-  if (employees <= 100) return "Mediana";
-  return "Grande";
+  return "No calculado";
 }
 
 function getAnswerStorageKey(companyId: string) {
@@ -1255,7 +1300,13 @@ function AccessRequestScreen({ legalDocuments, onBack, onLogin }: { legalDocumen
   const [success, setSuccess] = useState("");
   const [accountExists, setAccountExists] = useState(false);
   const update = (field: keyof typeof form, value: string | boolean) => {
-    setForm((current) => ({ ...current, [field]: value }));
+    setForm((current) => {
+      if (field === "sector" && typeof value === "string") {
+        const validRanges = getEmployeeRangeOptionsForSector(value);
+        return { ...current, sector: value, employeeRange: current.employeeRange && !validRanges.includes(current.employeeRange) ? "" : current.employeeRange };
+      }
+      return { ...current, [field]: value };
+    });
     if (field === "folio" || field === "email") {
       setVerifiedCompany(null);
       setVerifiedRawCompany(null);
@@ -1379,6 +1430,7 @@ function AccessRequestScreen({ legalDocuments, onBack, onLogin }: { legalDocumen
       const credential = await registerWithEmail(email, form.password);
       const companyId = verifiedCompany.id || normalizedFolio;
       const allowedEmails = getAllowedAccessEmails(verifiedRawCompany);
+      const calculatedSize = calculateCompanySize(form.sector, form.employeeRange);
       const payload = {
         ...verifiedCompany,
         id: companyId,
@@ -1387,7 +1439,9 @@ function AccessRequestScreen({ legalDocuments, onBack, onLogin }: { legalDocumen
         sector: form.sector,
         employees: form.employeeRange,
         employeeRange: form.employeeRange,
-        tamanoEmpresa: companySizeFromEmployeeRange(form.employeeRange),
+        rangoEmpleados: form.employeeRange,
+        tamanoEmpresa: calculatedSize || null,
+        tamañoEmpresa: calculatedSize || null,
         primaryContactEmail: normalizeEmail(verifiedRawCompany.primaryContactEmail || email),
         primaryContactName: toUpperText(verifiedRawCompany.primaryContactName || verifiedCompany.representative),
         primaryContactPhone: normalizePhone(verifiedRawCompany.primaryContactPhone || verifiedCompany.phone),
@@ -1512,14 +1566,14 @@ function AccessRequestScreen({ legalDocuments, onBack, onLogin }: { legalDocumen
                 label="Sector o giro"
                 value={form.sector}
                 onChange={(value) => update("sector", value)}
-                options={companySectorOptions.filter((option) => option !== "No especificado")}
+                options={withCurrentOption(companySectorOptions, form.sector)}
                 placeholder="Selecciona el sector"
               />
               <Select
                 label="Rango de empleados"
                 value={form.employeeRange}
                 onChange={(value) => update("employeeRange", value)}
-                options={employeeRangeOptions}
+                options={withCurrentOption(getEmployeeRangeOptionsForSector(form.sector), form.employeeRange)}
                 placeholder="Selecciona el rango de empleados"
               />
             </div>
@@ -2331,7 +2385,13 @@ function CompaniesTable({ intent, diagnostics: adminDiagnostics, setSelectedComp
     onPdf();
   };
   const updateNewCompany = (field: keyof typeof newCompany, value: string) => {
-    setNewCompany((current) => ({ ...current, [field]: value }));
+    setNewCompany((current) => {
+      if (field === "sector") {
+        const validRanges = getEmployeeRangeOptionsForSector(value);
+        return { ...current, sector: value, employeeRange: current.employeeRange && !validRanges.includes(current.employeeRange) ? "" : current.employeeRange };
+      }
+      return { ...current, [field]: value };
+    });
   };
 
   const validateDuplicateFolio = async (folioValue = newCompany.folio) => {
@@ -2397,6 +2457,7 @@ function CompaniesTable({ intent, diagnostics: adminDiagnostics, setSelectedComp
     try {
       const folioAlreadyExists = await validateDuplicateFolio(folio);
       if (folioAlreadyExists) return;
+      const calculatedSize = calculateCompanySize(newCompany.sector, newCompany.employeeRange);
 
       await createCompany({
         id: folio,
@@ -2406,7 +2467,9 @@ function CompaniesTable({ intent, diagnostics: adminDiagnostics, setSelectedComp
         sector: newCompany.sector || "",
         employees: newCompany.employeeRange || "",
         employeeRange: newCompany.employeeRange || null,
-        tamanoEmpresa: companySizeFromEmployeeRange(newCompany.employeeRange) || null,
+        rangoEmpleados: newCompany.employeeRange || null,
+        tamanoEmpresa: calculatedSize || null,
+        tamañoEmpresa: calculatedSize || null,
         representative: newCompany.representative,
         primaryContactName: newCompany.representative,
         primaryContactEmail: email,
@@ -2430,6 +2493,7 @@ function CompaniesTable({ intent, diagnostics: adminDiagnostics, setSelectedComp
         name,
         sector: newCompany.sector || "",
         employeeRange: newCompany.employeeRange || undefined,
+        tamanoEmpresa: calculatedSize || undefined,
         representative: newCompany.representative,
         city: newCompany.city,
         state: newCompany.state,
@@ -2496,14 +2560,14 @@ function CompaniesTable({ intent, diagnostics: adminDiagnostics, setSelectedComp
               label="Sector"
               value={newCompany.sector}
               onChange={(value) => updateNewCompany("sector", value)}
-              options={["Administración y desarrollo empresarial", "Servicios legales", "Logística y operación", "Servicios notariales", "Gestión empresarial", "Comercio", "Industria", "Servicios profesionales", "Tecnología"]}
+              options={withCurrentOption(companySectorOptions, newCompany.sector)}
               placeholder="Selecciona el sector"
             />
             <Select
               label="Rango de empleados"
               value={newCompany.employeeRange}
               onChange={(value) => updateNewCompany("employeeRange", value)}
-              options={employeeRangeOptions}
+              options={withCurrentOption(getEmployeeRangeOptionsForSector(newCompany.sector), newCompany.employeeRange)}
               placeholder="Selecciona el rango de empleados"
             />
             <Field label="Representante" value={newCompany.representative} onChange={(value) => updateNewCompany("representative", value)} />
@@ -3550,12 +3614,15 @@ function ProfileCard({ company, result, hideFollowUp = false, editable = false, 
     }
     setSaving(true);
     try {
+      const calculatedSize = calculateCompanySize(sector, employeeRange);
       await updateCompany(company.id, {
         rfc: normalizedRfc,
         sector: sector || "",
         employees: employeeRange || "",
         employeeRange: employeeRange || null,
-        tamanoEmpresa: companySizeFromEmployeeRange(employeeRange) || null,
+        rangoEmpleados: employeeRange || null,
+        tamanoEmpresa: calculatedSize || null,
+        tamañoEmpresa: calculatedSize || null,
         phone: normalizedPhone,
         primaryContactPhone: normalizedPhone,
       });
@@ -3588,8 +3655,18 @@ function ProfileCard({ company, result, hideFollowUp = false, editable = false, 
         <div className="profile-edit-panel">
           <div className="form-grid">
             <Field label="RFC" value={rfc} onChange={setRfc} format="rfcMoral" maxLength={12} />
-            <Select label="Sector" value={sector} onChange={setSector} options={companySectorOptions.filter((option) => option !== "No especificado")} placeholder="Selecciona el sector" />
-            <Select label="Rango de empleados" value={employeeRange} onChange={setEmployeeRange} options={employeeRangeOptions} placeholder="Selecciona el rango de empleados" />
+            <Select
+              label="Sector"
+              value={sector}
+              onChange={(value) => {
+                setSector(value);
+                const validRanges = getEmployeeRangeOptionsForSector(value);
+                if (employeeRange && !validRanges.includes(employeeRange)) setEmployeeRange("");
+              }}
+              options={withCurrentOption(companySectorOptions, sector)}
+              placeholder="Selecciona el sector"
+            />
+            <Select label="Rango de empleados" value={employeeRange} onChange={setEmployeeRange} options={withCurrentOption(getEmployeeRangeOptionsForSector(sector), employeeRange)} placeholder="Selecciona el rango de empleados" />
             <Field label="Teléfono" value={phone} onChange={setPhone} format="phone" maxLength={10} />
           </div>
           <p className="muted">Puedes actualizar únicamente estos datos operativos. Los demás datos permanecen protegidos.</p>

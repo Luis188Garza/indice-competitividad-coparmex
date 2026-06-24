@@ -25,7 +25,9 @@ export type CompanyFirestoreData = {
   numeroEmpleados?: number | null;
   employeeRange?: string | null;
   employees?: string | null;
+  rangoEmpleados?: string | null;
   tamanoEmpresa?: string | null;
+  tamañoEmpresa?: string | null;
   tamanoEmpresaFuente?: string | null;
   consecutivoImportacion?: string;
   source?: string;
