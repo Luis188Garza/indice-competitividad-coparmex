@@ -306,7 +306,7 @@ function mapCompanyRecord(item: Record<string, any>): AdminCompany {
     id: String(item.id),
     folio: String(item.folio || item.id),
     name: String(item.name || "Empresa sin nombre"),
-    sector: String(item.sector || "Sin sector"),
+    sector: String(item.sector || ""),
     city: String(item.city || "Nuevo Laredo"),
     state: String(item.state || "Tamaulipas"),
     employees: normalizeEmployeeRange(item.employeeRange || item.employees || item.rangoEmpleados, item.numeroEmpleados) || "No especificado",
@@ -1513,7 +1513,7 @@ function AccessRequestScreen({ legalDocuments, onBack, onLogin }: { legalDocumen
                 value={form.sector}
                 onChange={(value) => update("sector", value)}
                 options={companySectorOptions.filter((option) => option !== "No especificado")}
-                placeholder="Selecciona el sector o giro"
+                placeholder="Selecciona el sector"
               />
               <Select
                 label="Rango de empleados"
@@ -2241,7 +2241,7 @@ function CompaniesTable({ intent, diagnostics: adminDiagnostics, setSelectedComp
     folio: "",
     name: "",
     rfc: "",
-    sector: "Administración y desarrollo empresarial",
+    sector: "",
     employeeRange: "",
     representative: "",
     city: "Nuevo Laredo",
@@ -2319,7 +2319,7 @@ function CompaniesTable({ intent, diagnostics: adminDiagnostics, setSelectedComp
       const [a, b] = values[companySort] ?? values.empresa;
       return typeof a === "number" && typeof b === "number" ? b - a : String(a).localeCompare(String(b), "es-MX");
     });
-  const sectors = [...new Set(displayCompanies.map((company) => company.sector))].sort((a, b) => a.localeCompare(b, "es-MX"));
+  const sectors = [...new Set(displayCompanies.map((company) => company.sector).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es-MX"));
   const openDetail = (company: AdminCompany) => {
     setSelectedCompanyId(company.id);
     setSelectedAdminCompany(company);
@@ -2378,11 +2378,6 @@ function CompaniesTable({ intent, diagnostics: adminDiagnostics, setSelectedComp
       return;
     }
 
-    if (!newCompany.employeeRange) {
-      setCompanySaveError("Selecciona el rango de empleados.");
-      return;
-    }
-
     if (!isValidEmail(email)) {
       setCompanySaveError("Captura un correo válido.");
       return;
@@ -2408,10 +2403,10 @@ function CompaniesTable({ intent, diagnostics: adminDiagnostics, setSelectedComp
         folio,
         name,
         rfc,
-        sector: newCompany.sector,
-        employees: newCompany.employeeRange,
-        employeeRange: newCompany.employeeRange,
-        tamanoEmpresa: companySizeFromEmployeeRange(newCompany.employeeRange),
+        sector: newCompany.sector || "",
+        employees: newCompany.employeeRange || "",
+        employeeRange: newCompany.employeeRange || null,
+        tamanoEmpresa: companySizeFromEmployeeRange(newCompany.employeeRange) || null,
         representative: newCompany.representative,
         primaryContactName: newCompany.representative,
         primaryContactEmail: email,
@@ -2433,8 +2428,8 @@ function CompaniesTable({ intent, diagnostics: adminDiagnostics, setSelectedComp
         id: folio,
         folio,
         name,
-        sector: newCompany.sector,
-        employeeRange: newCompany.employeeRange,
+        sector: newCompany.sector || "",
+        employeeRange: newCompany.employeeRange || undefined,
         representative: newCompany.representative,
         city: newCompany.city,
         state: newCompany.state,
@@ -2455,7 +2450,7 @@ function CompaniesTable({ intent, diagnostics: adminDiagnostics, setSelectedComp
         folio: "",
         name: "",
         rfc: "",
-        sector: "Administración y desarrollo empresarial",
+        sector: "",
         employeeRange: "",
         representative: "",
         city: "Nuevo Laredo",
@@ -2502,6 +2497,7 @@ function CompaniesTable({ intent, diagnostics: adminDiagnostics, setSelectedComp
               value={newCompany.sector}
               onChange={(value) => updateNewCompany("sector", value)}
               options={["Administración y desarrollo empresarial", "Servicios legales", "Logística y operación", "Servicios notariales", "Gestión empresarial", "Comercio", "Industria", "Servicios profesionales", "Tecnología"]}
+              placeholder="Selecciona el sector"
             />
             <Select
               label="Rango de empleados"
@@ -3552,23 +3548,18 @@ function ProfileCard({ company, result, hideFollowUp = false, editable = false, 
       setError("El teléfono debe contener 10 dígitos.");
       return;
     }
-    if (!employeeRange) {
-      setError("Selecciona el rango de empleados.");
-      return;
-    }
-
     setSaving(true);
     try {
       await updateCompany(company.id, {
         rfc: normalizedRfc,
-        sector,
-        employees: employeeRange,
-        employeeRange,
-        tamanoEmpresa: companySizeFromEmployeeRange(employeeRange),
+        sector: sector || "",
+        employees: employeeRange || "",
+        employeeRange: employeeRange || null,
+        tamanoEmpresa: companySizeFromEmployeeRange(employeeRange) || null,
         phone: normalizedPhone,
         primaryContactPhone: normalizedPhone,
       });
-      onUpdated?.({ rfc: normalizedRfc, sector, employees: employeeRange, employeeRange, phone: normalizedPhone });
+      onUpdated?.({ rfc: normalizedRfc, sector: sector || "", employees: employeeRange || "", employeeRange: employeeRange || undefined, phone: normalizedPhone });
       setMessage("Los datos del perfil se actualizaron correctamente.");
       setEditing(false);
     } catch (reason) {
@@ -3597,7 +3588,7 @@ function ProfileCard({ company, result, hideFollowUp = false, editable = false, 
         <div className="profile-edit-panel">
           <div className="form-grid">
             <Field label="RFC" value={rfc} onChange={setRfc} format="rfcMoral" maxLength={12} />
-            <Select label="Sector" value={sector} onChange={setSector} options={companySectorOptions} />
+            <Select label="Sector" value={sector} onChange={setSector} options={companySectorOptions.filter((option) => option !== "No especificado")} placeholder="Selecciona el sector" />
             <Select label="Rango de empleados" value={employeeRange} onChange={setEmployeeRange} options={employeeRangeOptions} placeholder="Selecciona el rango de empleados" />
             <Field label="Teléfono" value={phone} onChange={setPhone} format="phone" maxLength={10} />
           </div>
